@@ -1,6 +1,7 @@
 import os
 import pyodbc
 import pandas as pd
+import openpyxl
 from datetime import datetime, timedelta
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
 from AutoQuery import queries  # import your dictionary of queries
@@ -64,16 +65,23 @@ def get_date_ranges(start_date, end_date):
 
     while current <= end_date:
         chunk_end = current + timedelta(days=CHUNK_SIZE_MONTHS * 30)
-        # Original code had:
-        if chunk_end > end_date:
-            chunk_end = end_date
         
+        # Hard stop at end of the var-current year
+        year_end = datetime(
+            year=current.year,
+            month=12,
+            day=31,
+            hour=23,
+            minute=59,
+            second=59,
+            microsecond=999000
+        )
+        chunk_end = min(chunk_end, year_end, end_date)
 
         yield current, chunk_end
 
-        # Move one day past chunk_end to avoid infinite loop
-        current = chunk_end + timedelta(days=1)
-        
+        # Move one millisecond past chunk_end to avoid infinite loop
+        current = chunk_end + timedelta(milliseconds=1)
 
 # ----------------------------
 # QUERY PICKER

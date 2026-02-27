@@ -1,5 +1,6 @@
 import os
 import pyodbc
+import openpyxl
 import pandas as pd
 from datetime import datetime, timedelta
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
@@ -72,7 +73,7 @@ def resolve_tables(chunk_start,archive_cutoff):
             "database": "CLARITY_ARCHIVE",
             "access_log": f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{year}",
             "acc_log_dtl": f"CLARITY_ARCHIVE.dbo.ACC_LOG_DTL_IX_{year}",
-            "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTDTL_IX_{year}",
+            "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
             "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}"
         }
     else:
@@ -83,7 +84,7 @@ def resolve_tables(chunk_start,archive_cutoff):
             "database": "clarity_rpt",
             "access_log": f"clarity_rpt.dbo.ACCESS_LOG",
             "acc_log_dtl": f"clarity_rpt.dbo.ACC_LOG_DTL_IX",
-            "acc_log_MTDTL": f"clarity_rpt.dbo.ACC_LOG_MTDTL_IX",
+            "acc_log_MTDTL": f"clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
             "acc_WRKF": f"clarity_rpt.dbo.ACCESS_WRKF"
         }
 # ----------------------------
@@ -268,10 +269,13 @@ def main():
             print("   No records for this chunk.")
             continue
 
-        for col in df.select_dtypes(include="object").columns:
-            df[col] = df[col].apply(
-                lambda x: ILLEGAL_CHARS_RE.sub('', x) if isinstance(x, str) else x
-            )
+        #for col in df.select_dtypes(include="object").columns:
+        #    df[col] = df[col].apply(
+        #        lambda x: ILLEGAL_CHARS_RE.sub('', x) if isinstance(x, str) else x
+        #    )
+
+        string_cols = df.select_dtypes(include=["object", "string"]).columns
+        df[string_cols] = df[string_cols].replace(ILLEGAL_CHARS_RE, "", regex=True)    
         # --- Dedupe if crossing from archive to live ---
         # Add keys here as a possibility.
         # Detect first live chunk
