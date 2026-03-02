@@ -209,10 +209,8 @@ def main():
             print("   No records for this chunk.")
             continue
         total_rows += len(df)
-        for col in df.select_dtypes(include="object").columns:
-            df[col] = df[col].apply(
-                lambda x: ILLEGAL_CHARS_RE.sub('', x) if isinstance(x, str) else x
-            )
+        string_cols = df.select_dtypes(include=["object", "string"]).columns
+        df[string_cols] = df[string_cols].replace(ILLEGAL_CHARS_RE, "", regex=True)
 
         # Write to Excel
         if first_write:

@@ -48,7 +48,7 @@ queries = {
             FROM #tmpAcc a
             LEFT JOIN {acc_log_dtl} v
                 ON a.ACCESS_INSTANT = v.ACCESS_INSTANT
-                AND a.PROCESS_ID = v.PROCESS_ID
+                --AND a.PROCESS_ID = v.PROCESS_ID
             LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m
                 ON m.METRIC_ID = a.METRIC_ID
             WHERE a.ACCESS_TIME BETWEEN @StartTime
@@ -70,7 +70,7 @@ queries = {
             FROM #tmpAcc a
             LEFT JOIN {acc_log_MTDTL} W
                 ON a.ACCESS_INSTANT = w.ACCESS_INSTANT
-                AND a.PROCESS_ID = w.PROCESS_ID
+                --AND a.PROCESS_ID = w.PROCESS_ID
             LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m
                 ON m.METRIC_ID = a.METRIC_ID
             WHERE a.ACCESS_TIME BETWEEN @StartTime
