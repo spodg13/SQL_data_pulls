@@ -2,6 +2,7 @@ import os
 import pyodbc
 import openpyxl
 import pandas as pd
+import time
 from datetime import datetime, timedelta
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
 from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
@@ -21,7 +22,7 @@ CHUNK_SIZE_MONTHS = 2
 def get_connection(anyserver, anydatabase):
     """Return a pyodbc connection to SQL Server using Windows Authentication."""
     conn_str = (
-        r"DRIVER={SQL Server};"
+        r"DRIVER={ODBC Driver 17 for SQL Server};"
         r"SERVER=" + anyserver + ";"
         r"DATABASE=" + anydatabase + ";"
         r"Trusted_Connection=yes;"
@@ -90,7 +91,7 @@ def resolve_tables(chunk_start,archive_cutoff):
 # ----------------------------
 # CHUNKED DATE RANGE
 # ----------------------------
-def get_date_ranges(start_date, end_date):
+def get_date_ranges(start_date, end_date, archive_cutoff):
     current = start_date
 
     while current <= end_date:
@@ -107,6 +108,9 @@ def get_date_ranges(start_date, end_date):
             microsecond=999000
         )
         chunk_end = min(chunk_end, year_end, end_date)
+        # --- NEW: prevent crossing archive boundary ---
+        if current < archive_cutoff <= chunk_end:
+            chunk_end = archive_cutoff - timedelta(milliseconds=1)
 
         yield current, chunk_end
 
@@ -152,6 +156,12 @@ def run_query_pyodbc_conn(conn, query_text):
     except Exception as e:
         print(f"⚠ Error running query: {e}")
         return pd.DataFrame()
+    
+def start_new_file(base_output_path, file_index):
+    new_path = f"{base_output_path}_part{file_index}.xlsx"
+    print(f"📁 Starting new file: {os.path.basename(new_path)}")
+    return new_path
+    
 # ----------------------------
 # MAIN
 # ----------------------------
@@ -224,11 +234,20 @@ def main():
     current_conn = None
     current_db_key = None   # Used to detect when DB changes
     total_rows_written = 0
+    MAX_ROWS_PER_FILE = 750_000
+    file_index = 1
+    rows_in_current_file = 0
+    files_created = 1
+    largest_file_rows = 0
+    chunk_times = []
+    base_output_path = os.path.splitext(output_path)[0]
+    output_path = f"{base_output_path}_part{file_index}.xlsx"
     live_start_csv_row = None
-    
-    # --- Loop through date chunks ---
-    for i, (chunk_start, chunk_end) in enumerate(get_date_ranges(start_date, end_date)):
+    start_total = time.time()
 
+    # --- Loop through date chunks ---
+    for i, (chunk_start, chunk_end) in enumerate(get_date_ranges(start_date, end_date, archive_cutoff)):
+        start_chunk = time.time()
         # --- Resolve correct tables for THIS chunk ---
         tables = resolve_tables(chunk_start, archive_cutoff)
 
@@ -261,7 +280,7 @@ def main():
             where_clause=where_clause
         )
 
-        print(f"Running chunk {i+1}: {chunk_start} → {chunk_end}")
+        print(f"Running chunk {i+1}: {chunk_start} → {chunk_end} ({tables['source']})")
 
         df = run_query_pyodbc_conn(current_conn, query_text)
 
@@ -275,7 +294,8 @@ def main():
         #    )
 
         string_cols = df.select_dtypes(include=["object", "string"]).columns
-        df[string_cols] = df[string_cols].replace(ILLEGAL_CHARS_RE, "", regex=True)    
+        df[string_cols] = df[string_cols].replace(ILLEGAL_CHARS_RE, "", regex=True)  
+        df['server_source'] = tables['server']  
         # --- Dedupe if crossing from archive to live ---
         # Add keys here as a possibility.
         # Detect first live chunk
@@ -284,7 +304,18 @@ def main():
             live_start_csv_row = total_rows_written + 2
             print(f"⚠ Archive → Live boundary crossed at CSV row {live_start_csv_row}")
 
-        # Write to Excel
+        rows_written_this_chunk = len(df)
+
+        # --- Check if we need a new file ---
+        if rows_in_current_file + rows_written_this_chunk > MAX_ROWS_PER_FILE:
+            largest_file_rows = max(largest_file_rows, rows_in_current_file)
+            file_index += 1
+            files_created += 1
+            rows_in_current_file = 0
+            first_write = True
+            output_path = start_new_file(base_output_path, file_index)
+
+        # --- Write to Excel ---
         if first_write:
             df.to_excel(output_path, index=False, header=True)
             first_write = False
@@ -292,9 +323,18 @@ def main():
             with pd.ExcelWriter(output_path, mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
                 start_row = writer.sheets['Sheet1'].max_row
                 df.to_excel(writer, index=False, header=False, startrow=start_row)
-        rows_written_this_chunk = len(df)        
+
+        rows_in_current_file += rows_written_this_chunk
         total_rows_written += rows_written_this_chunk
-        print(f"Chunk {i+1} written: {rows_written_this_chunk} rows")
+        print(f"Chunk {i+1} written: {rows_written_this_chunk} rows → {os.path.basename(output_path)}")
+        chunk_runtime = time.time() - start_chunk
+        chunk_times.append(chunk_runtime)
+
+        elapsed_chunk = timedelta(seconds=int(chunk_runtime))
+        elapsed_total = timedelta(seconds=int(time.time() - start_total))
+        print(f"Elapsed time {elapsed_chunk}")
+        print(f"Total Time {elapsed_total}\n")
+        largest_file_rows = max(largest_file_rows, rows_in_current_file)
 
     if current_conn:
         current_conn.close()
@@ -303,8 +343,15 @@ def main():
         print("⚠️ No rows returned across ALL chunks.")
         print("No output file was created.")
     else:
+        avg_chunk_time = sum(chunk_times) / len(chunk_times) if chunk_times else 0
+        avg_chunk_time_td = timedelta(seconds=int(avg_chunk_time))
+
         print(f"✅ Total rows written across all chunks: {total_rows_written}")
-        print(f"All queries finished.\nOutput saved to:\n{output_path}")
+        print(f"📁 Files created: {files_created}")
+        print(f"📊 Largest file rows: {largest_file_rows:,}")
+        print(f"⏱ Average chunk time: {avg_chunk_time_td}")
+        print(f"⏱ Total runtime: {timedelta(seconds=int(time.time() - start_total))}")
+        print(f"\nOutput saved starting at:\n{base_output_path}_part1.xlsx")
 
 if __name__ == "__main__":
     main()
