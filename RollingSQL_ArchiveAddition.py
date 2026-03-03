@@ -59,13 +59,41 @@ def build_where_clause(filter_type, patient_id=None, user_login=None):
 
 def get_archive_cutoff():
     today = datetime.today()
-    cutoff = today - timedelta(days=(3 * 365 ))
-    return cutoff.replace(hour=0, minute=0, second=0, microsecond=0)
+    archive_year = today.year - 3
+    server = "prd-clarity.et0278.epichosted.com"
+    database = "CLARITY_ARCHIVE"
+    table = f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{archive_year}"
+
+    print(f"Determining archive cutoff from {table}")
+    conn = get_connection(server, database)
+
+    query = f"""
+        SELECT MAX(ACCESS_TIME) AS max_access_time
+        FROM {table}
+    """
+
+    df = run_query_pyodbc_conn(conn, query)
+    conn.close()
+
+    if df.empty or pd.isna(df.loc[0, "max_access_time"]):
+        raise RuntimeError(f"Could not determine archive cutoff from {table}")
+
+    max_access_time = df.loc[0, "max_access_time"]
+    live_start = max_access_time 
+
+
+    # Last valid archive record
+    archive_end = live_start - timedelta(milliseconds=1)
+
+    print(f"Archive data ends at: {archive_end}")
+    print(f"Live data begins at: {live_start}")
+
+    return archive_end, live_start
     
 
-def resolve_tables(chunk_start,archive_cutoff):
+def resolve_tables(chunk_start,live_start):
     
-    if chunk_start < archive_cutoff:
+    if chunk_start < live_start:
         year = chunk_start.year
         return {
             "source": "archive",
@@ -91,7 +119,7 @@ def resolve_tables(chunk_start,archive_cutoff):
 # ----------------------------
 # CHUNKED DATE RANGE
 # ----------------------------
-def get_date_ranges(start_date, end_date, archive_cutoff):
+def get_date_ranges(start_date, end_date, archive_end):
     current = start_date
 
     while current <= end_date:
@@ -109,8 +137,8 @@ def get_date_ranges(start_date, end_date, archive_cutoff):
         )
         chunk_end = min(chunk_end, year_end, end_date)
         # --- NEW: prevent crossing archive boundary ---
-        if current < archive_cutoff <= chunk_end:
-            chunk_end = archive_cutoff - timedelta(milliseconds=1)
+        if current <= archive_end < chunk_end:
+            chunk_end = archive_end 
 
         yield current, chunk_end
 
@@ -171,7 +199,8 @@ def main():
     ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
 
     # --- Dates ---
-    archive_cutoff = get_archive_cutoff()
+    archive_end, live_start = get_archive_cutoff()
+  
     start_date_str = simpledialog.askstring("Start Date", "Enter start date (YYYY-MM-DD):")
     end_date_str = simpledialog.askstring("End Date", "Enter end date (YYYY-MM-DD):")
     if not end_date_str or end_date_str.strip() == "":
@@ -182,7 +211,7 @@ def main():
     # Add 00:00:00.000 and 23:59:59.999
     start_date = datetime.combine(start_date, datetime.min.time())
     end_date = datetime.combine(end_date, datetime.max.time())
-    tables=resolve_tables(start_date, archive_cutoff)
+    tables=resolve_tables(start_date, live_start)
 
     # --- Output folder ---
     output_folder = filedialog.askdirectory(title="Select output folder")
@@ -228,7 +257,7 @@ def main():
     output_path = os.path.join(output_folder, f"{query_choice}_{PatientName}_{user_login}_{start_date_str}_to_{end_date_str}_prepared_{prepared_ts}.xlsx")
 
     first_write = True
-    crossed_boundary = start_date >= archive_cutoff
+    crossed_boundary = start_date >= archive_end
     #Only used if deduping is implemented
     # archive_keys=set()
     current_conn = None
@@ -246,10 +275,10 @@ def main():
     start_total = time.time()
 
     # --- Loop through date chunks ---
-    for i, (chunk_start, chunk_end) in enumerate(get_date_ranges(start_date, end_date, archive_cutoff)):
+    for i, (chunk_start, chunk_end) in enumerate(get_date_ranges(start_date, end_date, archive_end)):
         start_chunk = time.time()
         # --- Resolve correct tables for THIS chunk ---
-        tables = resolve_tables(chunk_start, archive_cutoff)
+        tables = resolve_tables(chunk_start, live_start)
 
         db_key = (tables["server"], tables["database"])
 
@@ -263,7 +292,7 @@ def main():
             current_db_key = db_key
 
         # --- Determine archive vs live ---
-        is_live = chunk_start >= archive_cutoff
+        is_live = chunk_start >= live_start
 
         where_clause = build_where_clause(filter_type, patient_id, user_login) or ""
 
