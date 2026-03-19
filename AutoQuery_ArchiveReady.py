@@ -350,7 +350,7 @@ queries = {
                     THEN ( 
                             SELECT d.CALENDAR_DT_STR
                             FROM clarity_rpt.dbo.DATE_DIMENSION d
-                            WHERE Ceiling(tu.STRING_VALUE) = d.EPIC_DAT
+                            WHERE Ceiling(tu.STRING_VALUE) = d.EPIC_DTE
                             )
                 WHEN tu.DATA_MNEMONIC_ID = 'LRP'
                     THEN (

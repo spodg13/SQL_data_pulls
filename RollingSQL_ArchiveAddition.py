@@ -186,7 +186,12 @@ def run_query_pyodbc_conn(conn, query_text):
         return pd.DataFrame()
     
 def start_new_file(base_output_path, file_index):
-    new_path = f"{base_output_path}_part{file_index}.xlsx"
+    # Logic: Index 1 is the original. Index 2+ adds the suffix.
+    if file_index <= 1:
+        new_path = f"{base_output_path}.xlsx"
+    else:
+        new_path = f"{base_output_path}_part{file_index}.xlsx"
+    
     print(f"📁 Starting new file: {os.path.basename(new_path)}")
     return new_path
     
@@ -254,7 +259,8 @@ def main():
     prepared_ts = datetime.now().strftime("%Y%m%d_%H%M")
     PatientName = PatientName  or ""
     user_login = user_login or ""
-    output_path = os.path.join(output_folder, f"{query_choice}_{PatientName}_{user_login}_{start_date_str}_to_{end_date_str}_prepared_{prepared_ts}.xlsx")
+    filename_str = f"{query_choice}_{PatientName}_{user_login}_{start_date_str}_to_{end_date_str}_prepared_{prepared_ts}"
+    base_output_path = os.path.join(output_folder, filename_str)
 
     first_write = True
     crossed_boundary = start_date >= archive_end
@@ -265,12 +271,12 @@ def main():
     total_rows_written = 0
     MAX_ROWS_PER_FILE = 750_000
     file_index = 1
+    output_path = start_new_file(base_output_path, file_index) # Sets it to 'filename.xlsx'
     rows_in_current_file = 0
     files_created = 1
     largest_file_rows = 0
     chunk_times = []
-    base_output_path = os.path.splitext(output_path)[0]
-    output_path = f"{base_output_path}_part{file_index}.xlsx"
+    
     live_start_csv_row = None
     start_total = time.time()
 
@@ -380,7 +386,7 @@ def main():
         print(f"📊 Largest file rows: {largest_file_rows:,}")
         print(f"⏱ Average chunk time: {avg_chunk_time_td}")
         print(f"⏱ Total runtime: {timedelta(seconds=int(time.time() - start_total))}")
-        print(f"\nOutput saved starting at:\n{base_output_path}_part1.xlsx")
+        print(f"\nOutput saved starting at:\n{base_output_path}.xlsx")
 
 if __name__ == "__main__":
     main()
