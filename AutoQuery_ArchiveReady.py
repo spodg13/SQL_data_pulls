@@ -402,6 +402,90 @@ queries = {
             ,tu.DATA_MNEMONIC_ID
             """,
 # ----------------------------
+#  ACCESS LOG JOIN over CASE
+# ----------------------------
+    "access_log_join": """
+        Declare @PatientID VARCHAR(18) = '{patient_id}',
+            @UserID VARCHAR(18) = '{user_id}'
+            ,@StartTime DATETIME = '{start_time}'
+            ,@Endtime DATETIME = '{end_time}'
+            ,@sys_log VARCHAR (18) = '{user_login}';
+
+        WITH base_access AS (
+            SELECT 
+                a.ACCESS_INSTANT,
+                a.PROCESS_ID,
+                a.ACCESS_TIME,
+                a.USER_ID,
+                a.METRIC_ID,
+                a.CSN,
+                a.WORKSTATION_ID,
+                a.PAT_ID
+            FROM {access_log} a
+            WHERE a.ACCESS_TIME BETWEEN @StartTime AND @Endtime
+                {where_clause}
+    )
+        SELECT 
+            CAST(b.ACCESS_TIME AS date) AS DATE,
+            b.ACCESS_TIME,
+            b.USER_ID,
+            e.SYSTEM_LOGIN,
+            REPLACE(e.name, ',', ';') AS Emp_Name,
+            b.CSN,
+            v.ENC_TYPE_TITLE AS ENC_TYPE,
+            v.ENC_TYPE_C,
+            CASE WHEN v.HOSP_ADMSN_TIME IS NULL THEN v.appt_time ELSE v.HOSP_ADMSN_TIME END AS ENC_START,
+            CASE 
+                WHEN v.HOSP_DISCHRG_TIME IS NULL THEN DATEADD(MINUTE, v.APPT_LENGTH, v.APPT_TIME)
+                ELSE v.HOSP_DISCHRG_TIME 
+            END AS ENC_END,
+            v.CONTACT_DATE AS ENC_DATE,
+            dep.DEPARTMENT_NAME,
+            b.METRIC_ID,
+            m.METRIC_NAME,
+            z.NAME AS Type,
+            dtl.DATA_MNEMONIC_ID,
+            dtl.STRING_VALUE,
+            COALESCE(dd_dte.CALENDAR_DT_STR, dd_dat.CALENDAR_DT_STR, rd.REPORT_NAME, '-') AS Report_Info,
+            CONCAT(p.PAT_LAST_NAME, '; ', p.PAT_FIRST_NAME) AS Patient_Name,
+            p.PAT_MRN_ID,
+            p.PAT_ID,
+            p.birth_date,
+            p.SEX_C,
+            b.WORKSTATION_ID
+
+        FROM base_access b
+        -- FORCE the join order and type for large ranges
+        INNER JOIN {acc_log_dtl} dtl 
+            ON b.ACCESS_INSTANT = dtl.ACCESS_INSTANT
+            AND b.PROCESS_ID = dtl.PROCESS_ID
+        LEFT JOIN clarity_rpt.dbo.ACCESS_LOG_METRIC m ON b.METRIC_ID = m.METRIC_ID
+        -- Cross Apply for type conversion
+        OUTER APPLY (
+            SELECT TRY_CONVERT(NUMERIC(18,5), dtl.STRING_VALUE) AS num_val
+        ) x
+
+        LEFT JOIN clarity_rpt.dbo.PATIENT p ON b.PAT_ID = p.PAT_ID
+        LEFT JOIN clarity_rpt.dbo.CLARITY_EMP e ON b.USER_ID = e.USER_ID AND e.EMP_RECORD_TYPE_C = 1
+        LEFT JOIN clarity_rpt.dbo.ZC_EVENT_ACTION_TYPE z ON m.EVENT_ACTION_TYPE_C = z.EVENT_ACTION_TYPE_C
+        LEFT JOIN clarity_rpt.dbo.V_PAT_ENC v ON b.CSN = v.PAT_ENC_CSN_ID
+        LEFT JOIN clarity_rpt.dbo.CLARITY_DEP dep ON v.effective_dept_id = dep.DEPARTMENT_ID
+
+        -- Report/Date Lookups
+        LEFT JOIN clarity_rpt.dbo.DATE_DIMENSION dd_dte
+            ON dtl.DATA_MNEMONIC_ID = 'RECDOB' AND x.num_val IS NOT NULL AND CEILING(x.num_val) = dd_dte.EPIC_DTE
+
+        LEFT JOIN clarity_rpt.dbo.DATE_DIMENSION dd_dat
+            ON dtl.DATA_MNEMONIC_ID IN ('DAT','DXRDAT') AND x.num_val IS NOT NULL AND CEILING(x.num_val) = dd_dat.EPIC_DAT
+
+        LEFT JOIN clarity_rpt.dbo.REPORT_DETAILS rd
+            ON dtl.DATA_MNEMONIC_ID = 'LRP' AND rd.LRP_ID = dtl.STRING_VALUE
+
+        ORDER BY b.ACCESS_TIME, b.METRIC_ID, dtl.DATA_MNEMONIC_ID
+            -- THE SECRET SAUCE FOR LARGE RANGES:
+        OPTION (RECOMPILE, LOOP JOIN, MAXDOP 8);    
+        """,
+# ----------------------------
 #  ACCESS LOG FAST
 # ----------------------------
     "access_log_fast": """
