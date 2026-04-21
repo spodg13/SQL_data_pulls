@@ -2,8 +2,8 @@ import os
 import pyodbc
 import openpyxl
 import pandas as pd
-import time
-from datetime import datetime, timedelta
+import time as stopwatch
+from datetime import datetime, timedelta, time as dt_time
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
 from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
 import re
@@ -206,16 +206,26 @@ def main():
     # --- Dates ---
     archive_end, live_start = get_archive_cutoff()
   
-    start_date_str = simpledialog.askstring("Start Date", "Enter start date (YYYY-MM-DD):")
-    end_date_str = simpledialog.askstring("End Date", "Enter end date (YYYY-MM-DD):")
-    if not end_date_str or end_date_str.strip() == "":
-        end_date_str = start_date_str
-    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-    end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+    start_date_str = simpledialog.askstring("Start Date", "Enter start date (Any format):")
+    end_date_str = simpledialog.askstring("End Date", "Enter end date (Optional for single date):")
+    try:
+        # Use pandas to flexibily parse the start date
+        # dayfirst=True is helpful if you are outside the US!
+        start_date = pd.to_datetime(start_date_str).to_pydatetime()
 
-    # Add 00:00:00.000 and 23:59:59.999
-    start_date = datetime.combine(start_date, datetime.min.time())
-    end_date = datetime.combine(end_date, datetime.max.time())
+        # Handle the end date logic
+        if not end_date_str or end_date_str.strip() == "":
+            end_date = start_date
+        else:
+            end_date = pd.to_datetime(end_date_str).to_pydatetime()
+
+        # Normalize to start and end of day
+        start_date = datetime.combine(start_date.date(), dt_time.min)
+        end_date = datetime.combine(end_date.date(), dt_time.max)
+
+    except Exception as e:
+        print(f"Could not understand the date format: {e}")
+
     tables=resolve_tables(start_date, live_start)
 
     # --- Output folder ---
@@ -278,11 +288,11 @@ def main():
     chunk_times = []
     
     live_start_csv_row = None
-    start_total = time.time()
+    start_total = stopwatch.time()
 
     # --- Loop through date chunks ---
     for i, (chunk_start, chunk_end) in enumerate(get_date_ranges(start_date, end_date, archive_end)):
-        start_chunk = time.time()
+        start_chunk = stopwatch.time()
         # --- Resolve correct tables for THIS chunk ---
         tables = resolve_tables(chunk_start, live_start)
 
@@ -362,11 +372,11 @@ def main():
         rows_in_current_file += rows_written_this_chunk
         total_rows_written += rows_written_this_chunk
         print(f"Chunk {i+1} written: {rows_written_this_chunk} rows → {os.path.basename(output_path)}")
-        chunk_runtime = time.time() - start_chunk
+        chunk_runtime = stopwatch.time() - start_chunk
         chunk_times.append(chunk_runtime)
 
         elapsed_chunk = timedelta(seconds=int(chunk_runtime))
-        elapsed_total = timedelta(seconds=int(time.time() - start_total))
+        elapsed_total = timedelta(seconds=int(stopwatch.time() - start_total))
         print(f"Elapsed time {elapsed_chunk}")
         print(f"Total Time {elapsed_total}\n")
         largest_file_rows = max(largest_file_rows, rows_in_current_file)
@@ -385,7 +395,7 @@ def main():
         print(f"📁 Files created: {files_created}")
         print(f"📊 Largest file rows: {largest_file_rows:,}")
         print(f"⏱ Average chunk time: {avg_chunk_time_td}")
-        print(f"⏱ Total runtime: {timedelta(seconds=int(time.time() - start_total))}")
+        print(f"⏱ Total runtime: {timedelta(seconds=int(stopwatch.time() - start_total))}")
         print(f"\nOutput saved starting at:\n{base_output_path}.xlsx")
 
 if __name__ == "__main__":

@@ -1,3 +1,10 @@
+##########################################
+#
+#
+#
+#
+
+
 queries = {
     "eDiscovery": """
         DECLARE @PatientID VARCHAR(18) = '{patient_id}'
@@ -407,8 +414,8 @@ queries = {
     "access_log_join": """
         Declare @PatientID VARCHAR(18) = '{patient_id}',
             @UserID VARCHAR(18) = '{user_id}'
-            ,@StartTime DATETIME = '{start_time}'
-            ,@Endtime DATETIME = '{end_time}'
+            ,@StartTime DATETIME = '{start_date}'
+            ,@Endtime DATETIME = '{end_date}'
             ,@sys_log VARCHAR (18) = '{user_login}';
 
         WITH base_access AS (
@@ -491,8 +498,8 @@ queries = {
     "access_log_fast": """
         Declare @PatientID VARCHAR(18) = '{patient_id}',
             @UserID VARCHAR(18) = '{user_id}'
-            ,@StartTime DATETIME = '{start_time}'
-            ,@Endtime DATETIME = '{end_time}'
+            ,@StartTime DATETIME = '{start_date}'
+            ,@Endtime DATETIME = '{end_date}'
             ,@sys_log VARCHAR (18) = '{user_login}';
 
         Set NOCOUNT ON;
