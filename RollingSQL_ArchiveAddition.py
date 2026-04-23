@@ -264,9 +264,10 @@ def main():
     prepared_ts = datetime.now().strftime("%Y%m%d_%H%M")
     safe_start_str = start_date.strftime("%Y%m%d")
     safe_end_str = end_date.strftime("%Y%m%d")
-    PatientName = PatientName  or "AllPatients"
-    user_login = user_login or "AllUsers"
-    filename_str = f"{query_choice}_{PatientName}_{user_login}_{safe_start_str}_to_{safe_end_str}_prepared_{prepared_ts}"
+    PatientName = PatientName  or "_"
+    user_login = user_login or "_AllUsers"
+    filename_str = f"{query_choice}{PatientName}_{user_login}_{safe_start_str}_to_{safe_end_str}_prepared_{prepared_ts}"
+    filename_str=re.sub(r'_{2,}', '_',filename_str)
     base_output_path = os.path.join(output_folder, filename_str)
 
     first_write = True
