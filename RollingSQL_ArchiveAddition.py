@@ -123,19 +123,14 @@ def get_date_ranges(start_date, end_date, archive_end):
     current = start_date
 
     while current <= end_date:
-        chunk_end = current + timedelta(days=CHUNK_SIZE_MONTHS * 30)
+        next_chunk_proposal = datetime.combine(
+            (current + timedelta(days=CHUNK_SIZE_MONTHS * 30)).date(), 
+            dt_time.max
+        )
         
         # Hard stop at end of the var-current year
-        year_end = datetime(
-            year=current.year,
-            month=12,
-            day=31,
-            hour=23,
-            minute=59,
-            second=59,
-            microsecond=999000
-        )
-        chunk_end = min(chunk_end, year_end, end_date)
+        year_end = datetime.combine(datetime(current.year, 12, 31), dt_time.max)
+        chunk_end = min(next_chunk_proposal, year_end, end_date)
         # --- NEW: prevent crossing archive boundary ---
         if current <= archive_end < chunk_end:
             chunk_end = archive_end 
@@ -143,7 +138,7 @@ def get_date_ranges(start_date, end_date, archive_end):
         yield current, chunk_end
 
         # Move one millisecond past chunk_end to avoid infinite loop
-        current = chunk_end + timedelta(milliseconds=1)
+        current = (chunk_end + timedelta(seconds=1)).replace(microsecond=0)
 
 
 # ----------------------------
@@ -267,9 +262,11 @@ def main():
 
     # --- Prepare output file ---
     prepared_ts = datetime.now().strftime("%Y%m%d_%H%M")
-    PatientName = PatientName  or ""
-    user_login = user_login or ""
-    filename_str = f"{query_choice}_{PatientName}_{user_login}_{start_date_str}_to_{end_date_str}_prepared_{prepared_ts}"
+    safe_start_str = start_date.strftime("%Y%m%d")
+    safe_end_str = end_date.strftime("%Y%m%d")
+    PatientName = PatientName  or "AllPatients"
+    user_login = user_login or "AllUsers"
+    filename_str = f"{query_choice}_{PatientName}_{user_login}_{safe_start_str}_to_{safe_end_str}_prepared_{prepared_ts}"
     base_output_path = os.path.join(output_folder, filename_str)
 
     first_write = True
