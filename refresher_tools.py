@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min_streak=2):
     df = df.copy()
     
@@ -49,7 +50,7 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     )
 
     df['activity_type'] = 'Human/Initial'
-    df.loc[is_system, 'activity_type'] = 'System Refresh'
+    df.loc[is_system, 'activity_type'] = 'Possible System Refresh'
     
     # 9. Create Formatting for Time Gaps
     def format_duration(sec):
@@ -59,11 +60,11 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
 
     # Apply the mask: only show the gap if it was categorized as a System Refresh
     df['Time_Gap_Display'] = df.apply(
-        lambda x: format_duration(x['delta_sec']) if x['activity_type'] == 'System Refresh' else "", axis=1
+        lambda x: format_duration(x['delta_sec']) if x['activity_type'] == 'Possible System Refresh' else "", axis=1
     )
     
     # 10. Generate Summary DataFrame for the second sheet
-    summary_df = df[df['activity_type'] == 'System Refresh'].groupby(metric_id_col).agg(
+    summary_df = df[df['activity_type'] == 'Possible System Refresh'].groupby(metric_id_col).agg(
         Established_Rate=('delta_sec', lambda x: format_duration(((x / 60).round() * 60).mode().iloc[0])),
         Total_Refreshes=('activity_type', 'count')
     ).reset_index()

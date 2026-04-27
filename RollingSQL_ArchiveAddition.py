@@ -1,15 +1,24 @@
 import os
-import pyodbc
-import pandas as pd
-import time as stopwatch
-from finished import finished_sound
-import refresher_tools as rt
-from datetime import datetime, timedelta, time as dt_time
-from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
-from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
 import re
+import time as stopwatch
+from datetime import datetime, timedelta
+from datetime import time as dt_time
+from tkinter import (
+    Button,
+    OptionMenu,
+    StringVar,
+    Tk,
+    filedialog,
+    messagebox,
+    simpledialog,
+)
 
+import pandas as pd
+import pyodbc
 
+import refresher_tools as rt
+from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
+from finished import finished_sound
 
 # ----------------------------
 # CONFIGURATION
@@ -438,6 +447,7 @@ def main():
             should_process = True
             print("Query type 'cyber_patientless' detected: Auto-processing System Refreshes...")
         else:
+            finished_sound()
             should_process = messagebox.askyesno(
                 "Process Refreshes?", 
                 f"Data pull complete ({total_rows_written} rows).\n\n"
