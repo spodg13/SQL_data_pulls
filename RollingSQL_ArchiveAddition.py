@@ -1,8 +1,8 @@
 import os
 import pyodbc
-import openpyxl
 import pandas as pd
 import time as stopwatch
+from finished import finished_sound
 import refresher_tools as rt
 from datetime import datetime, timedelta, time as dt_time
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
@@ -112,10 +112,10 @@ def resolve_tables(chunk_start,live_start):
             "year": None,
             "server": "EDCLM1",
             "database": "clarity_rpt",
-            "access_log": f"clarity_rpt.dbo.ACCESS_LOG",
-            "acc_log_dtl": f"clarity_rpt.dbo.ACC_LOG_DTL_IX",
-            "acc_log_MTDTL": f"clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
-            "acc_WRKF": f"clarity_rpt.dbo.ACCESS_WRKF"
+            "access_log": "clarity_rpt.dbo.ACCESS_LOG",
+            "acc_log_dtl": "clarity_rpt.dbo.ACC_LOG_DTL_IX",
+            "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
+            "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF"
         }
 # ----------------------------
 # CHUNKED DATE RANGE
@@ -215,7 +215,7 @@ def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS
         summary_df.to_excel(writer, sheet_name='System_Summary', index=False)
         
         # Formatting
-        workbook = writer.book
+        #workbook = writer.book
         for sheet_name in writer.sheets:
             writer.sheets[sheet_name].set_column('A:Z', 18)
             
@@ -415,7 +415,7 @@ def main():
 
     if current_conn:
         current_conn.close()
-        
+
     if total_rows_written == 0:
         print("⚠️ No rows returned across ALL chunks.")
         print("No output file was created.")
@@ -452,7 +452,7 @@ def main():
                     print(f"❌ Error processing refreshes for {f_path}: {e}")
         else:
             print("⏩ System Refresh Analysis skipped by user.")
-        
+    finished_sound()    
 
 if __name__ == "__main__":
     main()
