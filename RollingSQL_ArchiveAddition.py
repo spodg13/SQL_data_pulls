@@ -3,6 +3,7 @@ import pyodbc
 import openpyxl
 import pandas as pd
 import time as stopwatch
+import refresher_tools as rt
 from datetime import datetime, timedelta, time as dt_time
 from tkinter import Tk, filedialog, simpledialog, messagebox, StringVar, OptionMenu, Button
 from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
@@ -189,7 +190,37 @@ def start_new_file(base_output_path, file_index):
     
     print(f"📁 Starting new file: {os.path.basename(new_path)}")
     return new_path
+def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS_TIME'):
+    """
+    Called after the data pull is finished. 
+    Reads the output file, identifies refreshes, and saves multi-sheet Excel.
+    """
+    if not os.path.exists(file_path):
+        return
+
+    print(f"--- Post-Processing System Refreshes for {os.path.basename(file_path)} ---")
     
+    # Load the data we just wrote
+    df = pd.read_excel(file_path)
+    df.columns = df.columns.str.strip()
+    df[time_col] = pd.to_datetime(df[time_col])
+
+    # Reuse your existing logic function
+    # (Assuming the logic from our previous conversation is named 'mark_even_minute_intervals')
+    processed_df, summary_df = rt.mark_even_minute_intervals(df, metric_col, time_col)
+
+    # Overwrite the file with the two-sheet version
+    with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+        processed_df.to_excel(writer, sheet_name='Processed_Logs', index=False)
+        summary_df.to_excel(writer, sheet_name='System_Summary', index=False)
+        
+        # Formatting
+        workbook = writer.book
+        for sheet_name in writer.sheets:
+            writer.sheets[sheet_name].set_column('A:Z', 18)
+            
+    print(f"✅ Post-processing complete. Sheets created in {os.path.basename(file_path)}")
+
 # ----------------------------
 # MAIN
 # ----------------------------
@@ -197,7 +228,7 @@ def main():
     root = Tk()
     root.withdraw()
     ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
-
+    files_to_process = []
     # --- Dates ---
     archive_end, live_start = get_archive_cutoff()
   
@@ -244,17 +275,18 @@ def main():
     
 
     patient_id = None
+    PatientName = None
     user_login = None
     if filter_type in ("p", "b"):
         patient_id = simpledialog.askstring("Patient ID", "Enter Patient ID:")
+        PatientName = simpledialog.askstring("Patient Name", "Enter Patient Name (Optional):")
     if filter_type in ("u", "b"):
         user_login = simpledialog.askstring("User Login", "Enter User Login:")
 
     # --- Open single connection ---
     conn = get_connection(tables["server"], tables["database"])
     user_id = get_user_id(conn, user_login) if user_login else None
-    PatientName = None
-
+    
     if filter_type in ("u", "b") and not user_id:
         messagebox.showerror("Error", f"User login '{user_login}' not found.")
         conn.close()
@@ -280,6 +312,8 @@ def main():
     MAX_ROWS_PER_FILE = 750_000
     file_index = 1
     output_path = start_new_file(base_output_path, file_index) # Sets it to 'filename.xlsx'
+    if output_path not in files_to_process:
+        files_to_process.append(output_path)
     rows_in_current_file = 0
     files_created = 1
     largest_file_rows = 0
@@ -381,11 +415,14 @@ def main():
 
     if current_conn:
         current_conn.close()
-    
+        
     if total_rows_written == 0:
         print("⚠️ No rows returned across ALL chunks.")
         print("No output file was created.")
-    else:
+
+    if total_rows_written > 0:
+        # Determine if we should prompt or just run
+        # Default 'Yes' for cyber_patientless, otherwise prompt the user
         avg_chunk_time = sum(chunk_times) / len(chunk_times) if chunk_times else 0
         avg_chunk_time_td = timedelta(seconds=int(avg_chunk_time))
 
@@ -395,6 +432,27 @@ def main():
         print(f"⏱ Average chunk time: {avg_chunk_time_td}")
         print(f"⏱ Total runtime: {timedelta(seconds=int(stopwatch.time() - start_total))}")
         print(f"\nOutput saved starting at:\n{base_output_path}.xlsx")
+        should_process = False
+        
+        if query_choice == "cyber_patientless":
+            should_process = True
+            print("Query type 'cyber_patientless' detected: Auto-processing System Refreshes...")
+        else:
+            should_process = messagebox.askyesno(
+                "Process Refreshes?", 
+                f"Data pull complete ({total_rows_written} rows).\n\n"
+                "Would you like to run the System Refresh Analysis on the output file(s)?"
+            )
+
+        if should_process:
+            for f_path in files_to_process:
+                try:
+                    process_system_refreshes(f_path, metric_col='METRIC_ID', time_col='ACCESS_TIME')
+                except Exception as e:
+                    print(f"❌ Error processing refreshes for {f_path}: {e}")
+        else:
+            print("⏩ System Refresh Analysis skipped by user.")
+        
 
 if __name__ == "__main__":
     main()
