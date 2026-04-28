@@ -31,7 +31,8 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     # Apply Heartbeat Signatures
     def get_signature(group):
         trusted = group.loc[group['is_personality_builder'], 'delta_sec']
-        if trusted.empty: return None
+        if trusted.empty:
+            return None
         return ((trusted / 60).round() * 60).mode().iloc[0]
 
     signatures = df_sorted.groupby(metric_id_col).apply(get_signature, include_groups=False).rename('signature_sec')
@@ -61,14 +62,15 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     is_timeout_action = (df['is_auto_id']) & (df['silence_since_human'] > 900)
 
     # 3. FINAL LABELING
-    df['activity_type'] = 'Human/Initial'
+    df['activity_type'] = ''
     df.loc[is_heartbeat | is_timeout_action, 'activity_type'] = 'Possible System Action'
     
     # 4. FORMATTING & CLEANUP
     def format_duration(row):
         if row['activity_type'] == 'Possible System Action':
             sec = row['silence_since_human'] if (row['silence_since_human'] > 900) else row['delta_sec']
-            if pd.isna(sec) or sec == 0: return ""
+            if pd.isna(sec) or sec == 0:
+                return ""
             return f"{int(sec // 60):02d}:{int(sec % 60):02d}"
         return ""
 
@@ -77,6 +79,6 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     drop_cols = ['original_index', 'prev_metric', 'is_pure_consecutive', 'delta_sec', 
                  'is_auto_id', 'is_system_prelim', 'last_human_ts', 'silence_since_human', 'signature_sec']
     processed_df = df.sort_values('original_index').drop(columns=drop_cols)
-    summary_df = processed_df[processed_df['activity_type'] == 'Possible System Action'].groupby(metric_id_col).size().reset_index(name='Total_Actions')
+    summary_df = processed_df[processed_df['activity_type'] == 'Possible System Action'].groupby(metric_id_col).size().reset_index(name='Total_System_Actions')
     
     return processed_df, summary_df
