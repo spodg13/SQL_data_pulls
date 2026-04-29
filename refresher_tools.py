@@ -29,43 +29,50 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     df_sorted['is_personality_builder'] = df_sorted['is_trusted_candidate'] & (df_sorted['streak_count'] >= min_streak)
 
     # Apply Heartbeat Signatures
+    # --- 1. Calculate the Signatures ---
     def get_signature(group):
         trusted = group.loc[group['is_personality_builder'], 'delta_sec']
-        if trusted.empty:
+        if trusted.empty: 
             return None
         return ((trusted / 60).round() * 60).mode().iloc[0]
 
-    signatures = df_sorted.groupby(metric_id_col).apply(get_signature, include_groups=False).rename('signature_sec')
-    df = df.join(signatures, on=metric_id_col)
+    # Create a mapping dictionary: {METRIC_ID: signature_value}
+    sig_map = df_sorted.groupby(metric_id_col).apply(get_signature, include_groups=False).to_dict()
+
+    # --- 2. Map back to the main dataframe ---
+    # .map() looks up the Metric ID in the dictionary and puts the value in 'signature_sec'
+    # This is 100% safe from "ACCESS_TIME_x" errors because there is no merge happening.
+    df['signature_sec'] = df[metric_id_col].map(sig_map)
     
+    # RE-SORT and RE-CALCULATE local gaps
+    # This should now work perfectly because 'ACCESS_TIME' is untouched
     df = df.sort_values([metric_id_col, time_col])
     df['delta_sec'] = df.groupby(metric_id_col)[time_col].diff().dt.total_seconds()
     
+    # 3. IDENTIFY HEARTBEATS
     is_heartbeat = (
         (df['delta_sec'] % 60).isin([0, 1, 59]) &
         (df['signature_sec'].notna()) &
         ((df['delta_sec'] - df['signature_sec']).abs() <= 1)
-    )
-
-    # 2. SILENCE LOGIC (The "Human Pulse" Tracker)
-    # We tag rows that are EITHER heartbeats OR Auto-IDs as "Non-Human" for the silence calculation
+        )
+    # 4. SILENCE LOGIC
     df['is_auto_id'] = df[metric_id_col].astype(str).isin(AUTO_IDS)
     df['is_system_prelim'] = is_heartbeat | df['is_auto_id']
     
+    # Sort chronologically for the silence tracker
     df = df.sort_values(time_col)
     
-    # Carry forward the last known timestamp of a row that is DEFINITELY not a system/auto ID
+    # Calculate silence since definitely-human action
     df['last_human_ts'] = df[time_col].where(~df['is_system_prelim']).ffill().shift(1)
     df['silence_since_human'] = (df[time_col] - df['last_human_ts']).dt.total_seconds()
 
-    # Define Timeout: If it's an Auto-ID and it's been 15+ mins since a TRUE human action
     is_timeout_action = (df['is_auto_id']) & (df['silence_since_human'] > 900)
 
-    # 3. FINAL LABELING
+    # 5. FINAL LABELING
     df['activity_type'] = ''
     df.loc[is_heartbeat | is_timeout_action, 'activity_type'] = 'Possible System Action'
     
-    # 4. FORMATTING & CLEANUP
+    # 6. FORMATTING & CLEANUP
     def format_duration(row):
         if row['activity_type'] == 'Possible System Action':
             sec = row['silence_since_human'] if (row['silence_since_human'] > 900) else row['delta_sec']
