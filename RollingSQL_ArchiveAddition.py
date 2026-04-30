@@ -51,7 +51,7 @@ def get_user_data(conn, identifier):
     query = """
         SELECT 
             e.USER_ID, 
-            r.TIMEOUT_INTERVAL 
+            (r.TIMEOUT_INTERVAL * 60) as toi_seconds
         FROM clarity_rpt..CLARITY_EMP e
         LEFT JOIN clarity_rpt..CLARITY_EMP_ROLE er ON er.user_ID = e.USER_ID
         LEFT JOIN clarity_rpt..USER_ROLE r ON er.default_user_role = r.user_role_name
@@ -63,8 +63,10 @@ def get_user_data(conn, identifier):
     row = cursor.fetchone()
     
     if row:
-        user_id, toi = row[0], row[1]
-        return user_id, (toi if toi is not None else 900)
+        uid = row[0]
+        # If DB has a value, it's already seconds. If NULL, default to 900.
+        toi = row[1] if row[1] is not None else 900
+        return uid, toi
     
     return None, 900
 
@@ -214,13 +216,25 @@ def start_new_file(base_output_path, file_index):
     
     print(f"📁 Starting new file: {os.path.basename(new_path)}")
     return new_path
-def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS_TIME'):
+def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS_TIME', toi=900):
     """
     Called after the data pull is finished. 
     Reads the output file, identifies refreshes, and saves multi-sheet Excel.
     """
     if not os.path.exists(file_path):
         return
+
+    # --- DEBUG BLOCK ---
+    # This will tell you exactly what the wrapper thinks 'toi' is.
+    # If this prints "DEBUG TOI: 0" or "None", we found the leak.
+    print(f"DEBUG TOI: {toi} (Type: {type(toi)})")
+
+    # Safety: Ensure toi is a valid integer and not 0 before passing it down
+    try:
+        final_toi = int(toi) if (toi and int(toi) > 0) else 900
+    except (ValueError, TypeError):
+        final_toi = 900
+    # -------------------
 
     print(f"--- Post-Processing System Refreshes for {os.path.basename(file_path)} ---")
     
@@ -231,7 +245,7 @@ def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS
 
     # Reuse your existing logic function
     # (Assuming the logic from our previous conversation is named 'mark_even_minute_intervals')
-    processed_df, summary_df = rt.mark_even_minute_intervals(df, metric_col, time_col)
+    processed_df, summary_df = rt.mark_even_minute_intervals(df, metric_col, time_col, toi=final_toi)
 
     # Overwrite the file with the two-sheet version
     with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
