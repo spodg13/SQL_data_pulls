@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min_streak=2):
+def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min_streak=2,toi=900):
     df = df.copy()
     # Ensure chronological order
     df = df.sort_values(time_col)
@@ -66,16 +66,28 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     df['last_human_ts'] = df[time_col].where(~df['is_system_prelim']).ffill().shift(1)
     df['silence_since_human'] = (df[time_col] - df['last_human_ts']).dt.total_seconds()
 
-    is_timeout_action = (df['is_auto_id']) & (df['silence_since_human'] > 900)
+    is_timeout_action = (df['is_auto_id']) & (df['silence_since_human'] > toi)
 
     # 5. FINAL LABELING
     df['activity_type'] = ''
-    df.loc[is_heartbeat | is_timeout_action, 'activity_type'] = 'Possible System Action'
+    df.loc[is_heartbeat, 'activity_type'] = 'Possible System Action'
+    # Second, label the inactivity triggers specifically
+    # This will overwrite 'Possible System Action' if an event happens to be both,
+    # but specifically targets the 14030/14040/33500 group.
+    df.loc[is_timeout_action, 'activity_type'] = 'Inactivity-Possible System Action'
     
+    # --- NEW SUMMARY ENHANCEMENT (Place here) ---
+    # Convert the signature to a readable string (e.g., "5 min")
+    # For rows that were inactivity timeouts (no signature), label them as such
+    df['Detected_Interval'] = (df['signature_sec'] / 60).fillna(0).astype(int).astype(str) + " min"
+    df.loc[is_timeout_action, 'Detected_Interval'] = f'Inactivity > {int(toi//60)}m'
+    #
+
     # 6. FORMATTING & CLEANUP
     def format_duration(row):
-        if row['activity_type'] == 'Possible System Action':
-            sec = row['silence_since_human'] if (row['silence_since_human'] > 900) else row['delta_sec']
+        # Checks if 'Possible System Action' is anywhere in the string
+        if 'Possible System Action' in row['activity_type']:
+            sec = row['silence_since_human'] if (row['silence_since_human'] > toi) else row['delta_sec']
             if pd.isna(sec) or sec == 0:
                 return ""
             return f"{int(sec // 60):02d}:{int(sec % 60):02d}"
@@ -83,9 +95,24 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
 
     df['Time_Gap_Display'] = df.apply(format_duration, axis=1)
     
+    # Update drop_cols to keep 'Detected_Interval' long enough to build the summary
     drop_cols = ['original_index', 'prev_metric', 'is_pure_consecutive', 'delta_sec', 
                  'is_auto_id', 'is_system_prelim', 'last_human_ts', 'silence_since_human', 'signature_sec']
+    
+    # Create the processed_df
     processed_df = df.sort_values('original_index').drop(columns=drop_cols)
-    summary_df = processed_df[processed_df['activity_type'] == 'Possible System Action'].groupby(metric_id_col).size().reset_index(name='Total_System_Actions')
+    
+    # Updated summary_df to include the interval
+    # Use .str.contains to catch both 'Possible System Action' 
+    # AND 'Inactivity-Possible System Action'
+    summary_df = processed_df[processed_df['activity_type'].str.contains('Possible System Action', na=False)].groupby(
+        [metric_id_col, 'Detected_Interval', 'activity_type']
+    ).size().reset_index(name='Total_System_Actions')
+    
+    # Final cleanup: If you don't want 'Detected_Interval' in your main Excel rows, 
+    # remove it from processed_df now
+    if 'Detected_Interval' in processed_df.columns:
+        processed_df = processed_df.drop(columns=['Detected_Interval'])
     
     return processed_df, summary_df
+    

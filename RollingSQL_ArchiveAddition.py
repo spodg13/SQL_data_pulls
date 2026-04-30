@@ -43,15 +43,30 @@ def get_connection(anyserver, anydatabase):
 # ----------------------------
 # USER ID LOOKUP
 # ----------------------------
-def get_user_id(conn, user_login):
-    """Look up user_id by system login."""
+def get_user_data(conn, identifier):
+    """Look up user data by either SYSTEM_LOGIN or USER_ID."""
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT USER_ID FROM clarity_rpt..clarity_emp WHERE SYSTEM_LOGIN = ?", 
-        (user_login,)
-    )
+    
+    # We use the same 'identifier' for both placeholder spots
+    query = """
+        SELECT 
+            e.USER_ID, 
+            r.TIMEOUT_INTERVAL 
+        FROM clarity_rpt..CLARITY_EMP e
+        LEFT JOIN clarity_rpt..CLARITY_EMP_ROLE er ON er.user_ID = e.USER_ID
+        LEFT JOIN clarity_rpt..USER_ROLE r ON er.default_user_role = r.user_role_name
+        WHERE e.SYSTEM_LOGIN = ? OR e.USER_ID = ?
+    """
+    
+    # Pass the identifier twice to fill both '?' spots
+    cursor.execute(query, (identifier, identifier))
     row = cursor.fetchone()
-    return row[0] if row else None
+    
+    if row:
+        user_id, toi = row[0], row[1]
+        return user_id, (toi if toi is not None else 900)
+    
+    return None, 900
 
 
 # ----------------------------
@@ -294,7 +309,7 @@ def main():
 
     # --- Open single connection ---
     conn = get_connection(tables["server"], tables["database"])
-    user_id = get_user_id(conn, user_login) if user_login else None
+    user_id, toi = get_user_data(conn, user_login) if user_login else None
     
     if filter_type in ("u", "b") and not user_id:
         messagebox.showerror("Error", f"User login '{user_login}' not found.")
@@ -457,7 +472,7 @@ def main():
         if should_process:
             for f_path in files_to_process:
                 try:
-                    process_system_refreshes(f_path, metric_col='METRIC_ID', time_col='ACCESS_TIME')
+                    process_system_refreshes(f_path, metric_col='METRIC_ID', time_col='ACCESS_TIME', toi=toi)
                 except Exception as e:
                     print(f"❌ Error processing refreshes for {f_path}: {e}")
         else:
