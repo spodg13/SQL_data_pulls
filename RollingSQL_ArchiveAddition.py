@@ -315,6 +315,8 @@ def main():
     patient_id = None
     PatientName = None
     user_login = None
+    user_id = None
+    toi = 900  # Default timeout interval in seconds (15 minutes)
     if filter_type in ("p", "b"):
         patient_id = simpledialog.askstring("Patient ID", "Enter Patient ID:")
         PatientName = simpledialog.askstring("Patient Name", "Enter Patient Name (Optional):")
@@ -322,8 +324,8 @@ def main():
         user_login = simpledialog.askstring("User Login", "Enter User Login:")
 
     # --- Open single connection ---
-    conn = get_connection(tables["server"], tables["database"])
-    user_id, toi = get_user_data(conn, user_login) if user_login else None
+        conn = get_connection(tables["server"], tables["database"])
+        user_id, toi = get_user_data(conn, user_login) if user_login else (None, 900)
     
     if filter_type in ("u", "b") and not user_id:
         messagebox.showerror("Error", f"User login '{user_login}' not found.")
@@ -335,8 +337,8 @@ def main():
     safe_start_str = start_date.strftime("%Y%m%d")
     safe_end_str = end_date.strftime("%Y%m%d")
     PatientName = PatientName  or "_"
-    user_login = user_login or "_AllUsers"
-    filename_str = f"{query_choice}{PatientName}_{user_login}_{safe_start_str}_to_{safe_end_str}_prepared_{prepared_ts}"
+    user_login_line = user_login or "_AllUsers"
+    filename_str = f"{query_choice}{PatientName}_{user_login_line}_{safe_start_str}_to_{safe_end_str}_prepared_{prepared_ts}"
     filename_str=re.sub(r'_{2,}', '_',filename_str)
     base_output_path = os.path.join(output_folder, filename_str)
 
@@ -391,7 +393,7 @@ def main():
             end_date=chunk_end.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             patient_id=patient_id or "",
             user_login=user_login or "",
-            user_id=user_id or "NULL",
+            user_id=user_id or "",
             where_clause=where_clause
         )
 
@@ -475,6 +477,7 @@ def main():
         if query_choice == "cyber_patientless":
             should_process = True
             print("Query type 'cyber_patientless' detected: Auto-processing System Refreshes...")
+            finished_sound()
         else:
             finished_sound()
             should_process = messagebox.askyesno(
@@ -491,7 +494,7 @@ def main():
                     print(f"❌ Error processing refreshes for {f_path}: {e}")
         else:
             print("⏩ System Refresh Analysis skipped by user.")
-    finished_sound()    
+        
 
 if __name__ == "__main__":
     main()
