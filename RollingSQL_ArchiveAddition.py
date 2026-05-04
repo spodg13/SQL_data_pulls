@@ -36,6 +36,7 @@ def get_connection(anyserver, anydatabase):
         r"SERVER=" + anyserver + ";"
         r"DATABASE=" + anydatabase + ";"
         r"Trusted_Connection=yes;"
+        r"TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str)
 

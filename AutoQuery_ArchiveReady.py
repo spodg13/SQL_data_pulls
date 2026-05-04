@@ -506,18 +506,18 @@ queries = {
 
         WITH tmpAccess AS (
             SELECT
-                d.ACCESS_INSTANT
-                ,d.PROCESS_ID
-                ,d.ACCESS_TIME
-                ,d.USER_ID
-                ,d.METRIC_ID
-                ,d.CSN
-                ,d.WORKSTATION_ID
-                ,d.PAT_ID
+                a.ACCESS_INSTANT
+                ,a.PROCESS_ID
+                ,a.ACCESS_TIME
+                ,a.USER_ID
+                ,a.METRIC_ID
+                ,a.CSN
+                ,a.WORKSTATION_ID
+                ,a.PAT_ID
                 
-            FROM {access_log} AS d
+            FROM {access_log} AS a
             WHERE
-                d.ACCESS_TIME BETWEEN @StartTime
+                a.ACCESS_TIME BETWEEN @StartTime
                 AND @Endtime
                 {where_clause}
         ),
@@ -569,18 +569,18 @@ queries = {
                     WHEN tu.DATA_MNEMONIC_ID = 'DAT'
                         THEN (
                         SELECT
-                            d.CALENDAR_DT_STR
-                        FROM clarity_rpt.dbo.DATE_DIMENSION d
+                            dt.CALENDAR_DT_STR
+                        FROM clarity_rpt.dbo.DATE_DIMENSION dt
                         WHERE
-                            Ceiling(tu.STRING_VALUE) = d.EPIC_DAT
+                            Ceiling(tu.STRING_VALUE) = dt.EPIC_DAT
                     )
                     WHEN tu.DATA_MNEMONIC_ID = 'DXRDAT'
                         THEN (
                         SELECT
-                            d.CALENDAR_DT_STR
-                        FROM clarity_rpt.dbo.DATE_DIMENSION d
+                            dt.CALENDAR_DT_STR
+                        FROM clarity_rpt.dbo.DATE_DIMENSION dt
                         WHERE
-                            Ceiling(tu.STRING_VALUE) = d.EPIC_DAT
+                            Ceiling(tu.STRING_VALUE) = dt.EPIC_DAT
                     )
                     ELSE '-'
                 END AS Report_Info
