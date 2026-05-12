@@ -8,7 +8,7 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     df['original_index'] = range(len(df))
     
     # IDs we suspect are system-triggered after silence
-    AUTO_IDS = ['14030', '14040', '33500']
+    AUTO_IDS = ['14020','14030', '14040', '33500']
     
     # 1. PRELIMINARY SYSTEM CHECK
     # Check for Heartbeats
