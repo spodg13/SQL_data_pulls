@@ -105,9 +105,18 @@ def mark_even_minute_intervals(df, metric_id_col, time_col, max_gap_mins=30, min
     # Updated summary_df to include the interval
     # Use .str.contains to catch both 'Possible System Action' 
     # AND 'Inactivity-Possible System Action'
-    summary_df = processed_df[processed_df['activity_type'].str.contains('Possible System Action', na=False)].groupby(
+    # --- ENHANCED SUMMARY WITH TIMEOUT HEADER ---
+    # 6-1. Filter for system actions
+    system_actions = processed_df[processed_df['activity_type'].str.contains('Possible System Action', na=False)]
+
+    # 6-2. Build the group-by summary
+    summary_df = system_actions.groupby(
         [metric_id_col, 'Detected_Interval', 'activity_type']
     ).size().reset_index(name='Total_System_Actions')
+    
+    # 6-3. Inject the "Epic Timeout Setting" as the first column for professionalism
+    # This makes it clear what threshold was used for the "Inactivity" labels
+    summary_df.insert(0, 'User_Timeout_Setting', f"{int(toi // 60)} min")
     
     # Final cleanup: If you don't want 'Detected_Interval' in your main Excel rows, 
     # remove it from processed_df now

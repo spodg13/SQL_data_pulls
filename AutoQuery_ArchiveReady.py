@@ -1,9 +1,14 @@
 ##########################################
 #
+#  Queries:
+#   eDiscovery
+#   Cyber Patientless
+#   Access Log PY Ready
+#   Access Log Fast
+#   Access Log Join over Case
+#   PY Analysis Ready
 #
-#
-#
-
+############################################
 
 queries = {
     "eDiscovery": """
@@ -388,7 +393,7 @@ queries = {
                 ) AS Patient_Name
             ,p.PAT_MRN_ID
             ,p.PAT_ID
-            ,p.birth_date
+            ,p.BIRTH_DATE
             ,p.SEX_C
             ,tu.WORKSTATION_ID
         FROM tmp_next tu
