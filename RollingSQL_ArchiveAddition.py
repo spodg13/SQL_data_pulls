@@ -18,7 +18,7 @@ import pyodbc
 
 import refresher_tools as rt
 from AutoQuery_ArchiveReady import queries  # import your dictionary of queries
-from finished import finished_sound
+from finished import play_sound
 
 # ----------------------------
 # CONFIGURATION
@@ -265,14 +265,22 @@ def process_system_refreshes(file_path, metric_col='METRIC_ID', time_col='ACCESS
 # ----------------------------
 def main():
     root = Tk()
+    # Forces the root to be a tiny point at the absolute center of your screen
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    root.geometry(f"1x1+{screen_width // 2}+{screen_height // 2}")
+    # Hide the main root window background, but keep it active
     root.withdraw()
+    # Force the hidden root window to grab top-level system focus
+    root.attributes("-topmost", True)
+
     ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
     files_to_process = []
     # --- Dates ---
     archive_end, live_start = get_archive_cutoff()
   
-    start_date_str = simpledialog.askstring("Start Date", "Enter start date (Any format):")
-    end_date_str = simpledialog.askstring("End Date", "Enter end date (Optional for single date):")
+    start_date_str = simpledialog.askstring("Start Date", "Enter start date (Any format):", parent=root)
+    end_date_str = simpledialog.askstring("End Date", "Enter end date (Optional for single date):", parent=root)
     try:
         # Use pandas to flexibily parse the start date
         # dayfirst=True is helpful if you are outside the US!
@@ -319,10 +327,10 @@ def main():
     user_id = None
     toi = 900  # Default timeout interval in seconds (15 minutes)
     if filter_type in ("p", "b"):
-        patient_id = simpledialog.askstring("Patient ID", "Enter Patient ID:")
-        PatientName = simpledialog.askstring("Patient Name", "Enter Patient Name (Optional):")
+        patient_id = simpledialog.askstring("Patient ID", "Enter Patient ID:", parent=root)
+        PatientName = simpledialog.askstring("Patient Name", "Enter Patient Name (Optional):", parent=root)
     if filter_type in ("u", "b"):
-        user_login = simpledialog.askstring("User Login", "Enter User Login:")
+        user_login = simpledialog.askstring("User Login", "Enter User Login:", parent=root)
 
     # --- Open single connection ---
         conn = get_connection(tables["server"], tables["database"])
@@ -478,9 +486,9 @@ def main():
         if query_choice == "cyber_patientless":
             should_process = True
             print("Query type 'cyber_patientless' detected: Auto-processing System Refreshes...")
-            finished_sound()
+            play_sound("finished")
         else:
-            finished_sound()
+            play_sound("finished")
             should_process = messagebox.askyesno(
                 "Process Refreshes?", 
                 f"Data pull complete ({total_rows_written} rows).\n\n"
@@ -495,7 +503,7 @@ def main():
                     print(f"❌ Error processing refreshes for {f_path}: {e}")
         else:
             print("⏩ System Refresh Analysis skipped by user.")
-        
+        play_sound("final")
 
 if __name__ == "__main__":
     main()
