@@ -50,13 +50,14 @@ def get_user_data(conn, identifier):
     
     # We use the same 'identifier' for both placeholder spots
     query = """
-        SELECT 
+        SELECT TOP 1
             e.USER_ID, 
             (r.TIMEOUT_INTERVAL * 60) as toi_seconds
         FROM clarity_rpt..CLARITY_EMP e
         LEFT JOIN clarity_rpt..CLARITY_EMP_ROLE er ON er.user_ID = e.USER_ID
         LEFT JOIN clarity_rpt..USER_ROLE r ON er.default_user_role = r.user_role_name
-        WHERE e.SYSTEM_LOGIN = ? OR e.USER_ID = ?
+        WHERE (e.SYSTEM_LOGIN = ? OR e.USER_ID = ?)
+        ORDER BY e.USER_STATUS_C ASC, r.TIMEOUT_INTERVAL DESC
     """
     
     # Pass the identifier twice to fill both '?' spots
@@ -335,6 +336,7 @@ def main():
     # --- Open single connection ---
         conn = get_connection(tables["server"], tables["database"])
         user_id, toi = get_user_data(conn, user_login) if user_login else (None, 900)
+        print(f"Retrieved User ID: {user_id}, TOI: {toi} seconds for login '{user_login}'")
     
     if filter_type in ("u", "b") and not user_id:
         messagebox.showerror("Error", f"User login '{user_login}' not found.")
@@ -405,7 +407,7 @@ def main():
             user_id=user_id or "",
             where_clause=where_clause
         )
-
+        #print(f"query_text: {query_text}")  
         print(f"Running chunk {i+1}: {chunk_start} → {chunk_end} ({tables['source']})")
 
         df = run_query_pyodbc_conn(current_conn, query_text)
