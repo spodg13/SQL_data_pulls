@@ -321,8 +321,8 @@ queries = {
                 --,w.DATA_MNEMONIC_ID AS 'MTDLT_MNEMONIC'
                 --,w.STRING_VALUE AS 'MTDLT_STRING'
                 ,CSN
-                ,WORKSTATION_ID
-                ,PAT_ID
+                ,a.WORKSTATION_ID
+                ,a.PAT_ID
             FROM tmpAccess a
             LEFT JOIN {acc_log_dtl} v
                 ON a.ACCESS_INSTANT = v.ACCESS_INSTANT
@@ -665,7 +665,7 @@ queries = {
             SELECT
                 Cast(tu.ACCESS_TIME as date) as 'DATE'
                 ,tu.ACCESS_TIME
-                ,tu.User_ID
+                ,tu.USER_ID
                 ,REPLACE(e.name, ',', ';') AS Emp_Name
                 ,e.SYSTEM_LOGIN
                 ,tu.CSN

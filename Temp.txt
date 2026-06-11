@@ -1,0 +1,126 @@
+Declare @PatientID VARCHAR(18) = '{patient_id}',
+            @UserID VARCHAR(18) = '{user_id}'
+            ,@StartTime DATETIME = '{start_date}'
+            ,@Endtime DATETIME = '{end_date}'
+            ,@sys_log VARCHAR (18) = '{user_login}';
+
+            Set NOCOUNT ON;
+
+        WITH tmpAccess AS (
+            SELECT
+                a.ACCESS_INSTANT
+                ,a.PROCESS_ID
+                ,a.ACCESS_TIME
+                ,a.USER_ID
+                ,a.METRIC_ID
+                ,a.CSN
+                ,a.WORKSTATION_ID
+                ,a.PAT_ID
+                
+            FROM {access_log} AS a
+            WHERE
+                a.ACCESS_TIME BETWEEN @StartTime
+                AND @Endtime
+                {where_clause}
+        ),
+    
+        tmp_next AS (
+            SELECT
+                ACCESS_TIME
+                ,v.ACCESS_INSTANT
+                ,USER_ID
+                ,a.METRIC_ID
+                ,m.metric_name
+                ,m.EVENT_ACTION_TYPE_C
+                ,m.EVENT_ACT_SUBTYPE_C
+                ,v.DATA_MNEMONIC_ID
+                ,v.STRING_VALUE
+                ,CSN
+                ,WORKSTATION_ID
+                ,PAT_ID
+            FROM tmpAccess a
+            LEFT JOIN {acc_log_dtl} v
+                ON a.ACCESS_INSTANT = v.ACCESS_INSTANT
+                AND a.PROCESS_ID = v.PROCESS_ID
+            LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m
+                ON m.METRIC_ID = a.METRIC_ID          
+        )
+            SELECT
+                Cast(tu.ACCESS_TIME as date) as 'DATE'
+                ,tu.ACCESS_TIME
+                ,tu.User_ID
+                ,REPLACE(e.name, ',', ';') AS Emp_Name
+                ,e.SYSTEM_LOGIN
+                ,tu.CSN
+                ,v.ENC_TYPE_TITLE AS ENC_TYPE
+                ,V.ENC_TYPE_C
+                ,CASE
+                    WHEN v.HOSP_ADMSN_TIME is null then v.appt_time
+                    ELSE v.HOSP_ADMSN_TIME
+                END as 'ENC_START'
+                ,CASE	
+                    WHEN v.HOSP_DISCHRG_TIME is null then dateadd(MINUTE,v.APPT_LENGTH,v.APPT_TIME)
+                        ELSE v.HOSP_DISCHRG_TIME
+                    END as 'ENC_END'
+                ,v.CONTACT_DATE as ENC_DATE
+                ,d.DEPARTMENT_NAME
+                ,tu.METRIC_ID
+                ,tu.METRIC_NAME
+                ,z.NAME AS 'Type'
+                ,tu.DATA_MNEMONIC_ID
+                ,tu.STRING_VALUE
+                ,CASE
+                    WHEN tu.DATA_MNEMONIC_ID = 'RECDOB'
+			            THEN ( 
+                                SELECT dt.CALENDAR_DT_STR
+                                FROM clarity_rpt.dbo.DATE_DIMENSION dt
+                                WHERE Ceiling(tu.STRING_VALUE) = dt.EPIC_DTE
+                                )
+                    WHEN tu.DATA_MNEMONIC_ID = 'LRP'
+                        THEN (
+                        SELECT
+                            rd.REPORT_NAME
+                        FROM clarity_rpt.dbo.REPORT_DETAILS rd
+                        WHERE
+                            rd.LRP_ID = tu.STRING_VALUE
+                    )
+                    WHEN tu.DATA_MNEMONIC_ID = 'DAT'
+                        THEN (
+                        SELECT
+                            dt.CALENDAR_DT_STR
+                        FROM clarity_rpt.dbo.DATE_DIMENSION dt
+                        WHERE
+                            Ceiling(tu.STRING_VALUE) = dt.EPIC_DAT
+                    )
+                    WHEN tu.DATA_MNEMONIC_ID = 'DXRDAT'
+                        THEN (
+                        SELECT
+                            dt.CALENDAR_DT_STR
+                        FROM clarity_rpt.dbo.DATE_DIMENSION dt
+                        WHERE
+                            Ceiling(tu.STRING_VALUE) = dt.EPIC_DAT
+                    )
+                    ELSE '-'
+                END AS Report_Info
+                ,concat(p.PAT_LAST_NAME, '; ', p.PAT_First_Name) AS Patient_Name
+                ,p.PAT_MRN_ID
+                ,p.PAT_ID
+                ,p.BIRTH_DATE
+                ,p.SEX_C
+                ,tu.WORKSTATION_ID
+            FROM tmp_next tu
+
+            LEFT JOIN clarity_rpt.dbo.PATIENT AS p
+                ON tu.PAT_ID = p.PAT_ID
+            LEFT JOIN clarity_rpt.dbo.CLARITY_EMP AS e
+                ON tu.USER_ID = e.USER_ID
+                AND e.EMP_RECORD_TYPE_C = '1'
+            LEFT JOIN clarity_rpt..ZC_EVENT_ACTION_TYPE z
+                ON tu.EVENT_ACTION_TYPE_C = z.EVENT_ACTION_TYPE_C
+            LEFT JOIN clarity_rpt..V_PAT_ENC v
+                ON tu.CSN = v.PAT_ENC_CSN_ID
+            LEFT JOIN clarity_rpt..CLARITY_DEP d
+                ON v.effective_dept_id = d.DEPARTMENT_ID
+                
+
+            ORDER BY tu.ACCESS_TIME, tu.METRIC_ID, tu.DATA_MNEMONIC_ID

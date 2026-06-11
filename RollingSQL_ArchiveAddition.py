@@ -409,11 +409,19 @@ def main():
         )
         #print(f"query_text: {query_text}")  
         print(f"Running chunk {i+1}: {chunk_start} → {chunk_end} ({tables['source']})")
+        print(f"Start time: {datetime.now().strftime('%H:%M:%S')}")
 
         df = run_query_pyodbc_conn(current_conn, query_text)
 
         if df.empty:
             print("   No records for this chunk.")
+            chunk_runtime = stopwatch.time() - start_chunk
+            chunk_times.append(chunk_runtime)
+
+            elapsed_chunk = timedelta(seconds=int(chunk_runtime))
+            elapsed_total = timedelta(seconds=int(stopwatch.time() - start_total))
+            print(f"   Chunk runtime: {elapsed_chunk}")
+            print(f"   Total elapsed: {elapsed_total}")
             continue
 
         #for col in df.select_dtypes(include="object").columns:
