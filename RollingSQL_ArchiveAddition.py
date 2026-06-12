@@ -208,7 +208,24 @@ def run_query_pyodbc_conn(conn, query_text):
     except Exception as e:
         print(f"⚠ Error running query: {e}")
         return pd.DataFrame()
+
+def log_chunk_timing(start_chunk, start_total, stopwatch, chunk_times, prefix=""):
+    """Calculates, records, and prints chunk and total execution times."""
+    chunk_runtime = stopwatch.time() - start_chunk
+    chunk_times.append(chunk_runtime)
+
+    elapsed_chunk = timedelta(seconds=int(chunk_runtime))
+    elapsed_total = timedelta(seconds=int(stopwatch.time() - start_total))
     
+    # Optional prefix allows you to adapt the print statement for empty chunks vs successful chunks
+    if prefix:
+        print(f"{prefix}Chunk runtime: {elapsed_chunk}")
+        print(f"{prefix}Total elapsed: {elapsed_total}")
+    else:
+        print(f"Elapsed time {elapsed_chunk}")
+        print(f"Total Time {elapsed_total}\n")
+    return
+
 def start_new_file(base_output_path, file_index):
     # Logic: Index 1 is the original. Index 2+ adds the suffix.
     if file_index <= 1:
@@ -415,13 +432,8 @@ def main():
 
         if df.empty:
             print("   No records for this chunk.")
-            chunk_runtime = stopwatch.time() - start_chunk
-            chunk_times.append(chunk_runtime)
-
-            elapsed_chunk = timedelta(seconds=int(chunk_runtime))
-            elapsed_total = timedelta(seconds=int(stopwatch.time() - start_total))
-            print(f"   Chunk runtime: {elapsed_chunk}")
-            print(f"   Total elapsed: {elapsed_total}")
+            # Call the helper function here
+            log_chunk_timing(start_chunk, start_total, stopwatch, chunk_times, prefix="   ")
             continue
 
         #for col in df.select_dtypes(include="object").columns:
@@ -463,13 +475,7 @@ def main():
         rows_in_current_file += rows_written_this_chunk
         total_rows_written += rows_written_this_chunk
         print(f"Chunk {i+1} written: {rows_written_this_chunk} rows → {os.path.basename(output_path)}")
-        chunk_runtime = stopwatch.time() - start_chunk
-        chunk_times.append(chunk_runtime)
-
-        elapsed_chunk = timedelta(seconds=int(chunk_runtime))
-        elapsed_total = timedelta(seconds=int(stopwatch.time() - start_total))
-        print(f"Elapsed time {elapsed_chunk}")
-        print(f"Total Time {elapsed_total}\n")
+        log_chunk_timing(start_chunk, start_total, stopwatch, chunk_times)
         largest_file_rows = max(largest_file_rows, rows_in_current_file)
 
     if current_conn:
