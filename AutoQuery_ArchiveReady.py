@@ -11,6 +11,123 @@
 ############################################
 
 queries = {
+    "New_eDiscovery": """
+        DECLARE @PatientID VARCHAR(18) = '{patient_id}'
+	    ,@UserID VARCHAR(18) = '{user_id}'
+        ,@StartTime DATETIME = '{start_date}'
+        ,@Endtime DATETIME = '{end_date}'
+        ,@sys_log VARCHAR (18) = '{user_login}';
+        SET NOCOUNT ON;
+
+        DECLARE @StartInstant BIGINT = DATEDIFF_BIG(second, '1840-12-31', @StartTime);
+        DECLARE @EndInstant BIGINT = DATEDIFF_BIG(second, '1840-12-31', @EndTime);
+
+        -- 2. First structural swap: #tmpAcc
+CREATE TABLE #tmpAcc (
+    ACCESS_INSTANT NUMERIC(18,0) NOT NULL, 
+    PROCESS_ID VARCHAR(50) NOT NULL,         
+    ACCESS_TIME DATETIME NULL,
+    USER_ID VARCHAR(18) NULL,
+    METRIC_ID NUMERIC(18,0) NULL,
+    CSN NUMERIC(18,0) NULL,
+    WORKSTATION_ID VARCHAR(255) NULL,       
+    PAT_ID VARCHAR(18) NULL,
+    {index_def_tmpAcc} -- <-- Injected structural strategy here
+);
+
+INSERT INTO #tmpAcc
+    SELECT a.ACCESS_INSTANT, a.PROCESS_ID, a.ACCESS_TIME, a.USER_ID, a.METRIC_ID, a.CSN, a.WORKSTATION_ID, a.PAT_ID
+    FROM {access_log} AS a
+    -- This inline JOIN executes the ultra-fast Left Anti Semi Join on background users
+    LEFT JOIN (
+        VALUES 
+            ('S202360'), ('ICSERV'), ('USERPSMF'), 
+            ('HBBCKGRND'), ('TASBATCH1'), ('30109164'), ('1')
+    ) PU(ExcludedUser) ON a.USER_ID = PU.ExcludedUser
+    WHERE a.ACCESS_TIME BETWEEN @StartTime AND @EndTime -- <-- Timestamps are evaluated FIRST
+      AND PU.ExcludedUser IS NULL                       -- <-- Then background users are dropped
+      {where_clause};
+
+-- 3. Second structural swap: #tmpFinal
+CREATE TABLE #tmpFinal (
+    ACCESS_TIME DATETIME NULL,
+    ACCESS_INSTANT NUMERIC(18,0) NOT NULL,
+    USER_ID VARCHAR(18) NULL,
+    METRIC_ID NUMERIC(18,0) NULL,
+    EVENT_ACTION_TYPE_C INT NULL,
+    EVENT_ACT_SUBTYPE_C INT NULL,
+    DATA_MNEMONIC_ID VARCHAR(10) NULL,
+    STRING_VALUE VARCHAR(255) NULL,
+    CSN NUMERIC(18,0) NULL,
+    WORKSTATION_ID VARCHAR(255) NULL,       
+    PAT_ID VARCHAR(18) NULL
+    {index_def_tmpFinal} -- <-- Empty for live / Columnstore definition for archive
+);
+
+    INSERT INTO #tmpFinal
+    SELECT a.ACCESS_TIME, v.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, v.DATA_MNEMONIC_ID, v.STRING_VALUE, a.CSN, a.WORKSTATION_ID, a.PAT_ID
+    FROM #tmpAcc a
+    INNER JOIN {acc_log_dtl} v
+        ON a.ACCESS_INSTANT = v.ACCESS_INSTANT AND a.PROCESS_ID = v.PROCESS_ID
+        AND v.ACCESS_INSTANT BETWEEN @StartInstant AND @EndInstant 
+    LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
+
+    UNION ALL
+
+    SELECT a.ACCESS_TIME, w.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, w.DATA_MNEMONIC_ID, w.STRING_VALUE, a.CSN, a.WORKSTATION_ID, a.PAT_ID
+    FROM #tmpAcc a
+    INNER JOIN {acc_log_MTDTL} w
+        ON a.ACCESS_INSTANT = w.ACCESS_INSTANT AND a.PROCESS_ID = w.PROCESS_ID
+        AND w.ACCESS_INSTANT BETWEEN @StartInstant AND @EndInstant 
+    LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
+    WHERE w.DATA_MNEMONIC_ID IS NOT NULL;
+
+    -- 4. Post-Insert structural index processing
+    {index_def_tmpFinal_post} -- <-- Dynamically runs index statement only if live
+
+    -- 5. Final Selection Execution (Use double curly braces for native SQL CASE statements)
+    SELECT tu.ACCESS_TIME
+        , tu.User_ID
+        , Replace(e.name, ',', ';') AS Emp_Name
+        , tu.CSN
+        , v.ENC_TYPE_TITLE
+        , d.DEPARTMENT_NAME
+        , tu.METRIC_ID
+        , m.METRIC_NAME
+        , z.NAME AS 'Type'
+        , tu.DATA_MNEMONIC_ID
+        , tu.STRING_VALUE
+        , CASE 
+            WHEN tu.DATA_MNEMONIC_ID = 'LRP' THEN rd.REPORT_NAME
+            WHEN tu.DATA_MNEMONIC_ID IN ('DAT', 'DXRDAT') THEN dim.CALENDAR_DT_STR
+            WHEN tu.DATA_MNEMONIC_ID LIKE 'HNO%' THEN CONCAT(z_note.NAME, ' signed by ', h.current_author_id, ' Date Of Service ', h.CRT_INST_LOCAL_DTTM)
+            WHEN tu.DATA_MNEMONIC_ID LIKE 'PROVS%' THEN s.PROV_NAME
+            ELSE ''
+        END AS Report_Info
+        , CONCAT(p.PAT_LAST_NAME, '; ', p.PAT_First_Name) AS Patient_Name
+        , p.PAT_MRN_ID
+        , tu.PAT_ID
+        , tu.WORKSTATION_ID
+    FROM #tmpFinal tu
+    INNER JOIN clarity_rpt.dbo.ACCESS_LOG_METRIC AS m ON tu.METRIC_ID = m.metric_id
+    LEFT JOIN clarity_rpt.dbo.PATIENT AS p ON tu.PAT_ID = p.PAT_ID
+    LEFT JOIN clarity_rpt.dbo.CLARITY_EMP AS e ON tu.USER_ID = e.USER_ID AND e.EMP_RECORD_TYPE_C = 1
+    LEFT JOIN clarity_rpt..ZC_EVENT_ACTION_TYPE z ON tu.EVENT_ACTION_TYPE_C = z.EVENT_ACTION_TYPE_C
+    LEFT JOIN clarity_rpt..V_PAT_ENC v ON tu.CSN = v.PAT_ENC_CSN_ID
+    LEFT JOIN clarity_rpt..CLARITY_DEP d ON v.effective_dept_id = d.DEPARTMENT_ID
+    LEFT JOIN clarity_rpt.dbo.REPORT_DETAILS rd ON tu.DATA_MNEMONIC_ID = 'LRP' AND rd.LRP_ID = tu.STRING_VALUE
+    LEFT JOIN clarity_rpt.dbo.DATE_DIMENSION dim ON tu.DATA_MNEMONIC_ID IN ('DAT', 'DXRDAT') AND Ceiling(TRY_CAST(tu.STRING_VALUE AS FLOAT)) = dim.EPIC_DAT
+    LEFT JOIN Clarity_rpt..HNO_INFO h ON tu.DATA_MNEMONIC_ID LIKE 'HNO%' AND h.NOTE_ID = tu.STRING_VALUE
+    LEFT JOIN clarity_rpt..ZC_NOTE_TYPE_IP z_note ON h.IP_NOTE_TYPE_C = z_note.TYPE_IP_C
+    LEFT JOIN Clarity_rpt..Clarity_ser s ON tu.DATA_MNEMONIC_ID LIKE 'PROVS%' AND s.PROV_ID = tu.STRING_VALUE
+
+    ORDER BY tu.ACCESS_TIME, tu.METRIC_ID, tu.DATA_MNEMONIC_ID;
+
+    -- Cleanup
+    DROP TABLE #tmpAcc;
+    DROP TABLE #tmpFinal;
+
+    """,
     "eDiscovery": """
         DECLARE @PatientID VARCHAR(18) = '{patient_id}'
 	    ,@UserID VARCHAR(18) = '{user_id}'
@@ -173,7 +290,7 @@ queries = {
             ON tu.CSN = v.PAT_ENC_CSN_ID
         LEFT JOIN clarity_rpt..CLARITY_DEP d
             ON v.effective_dept_id = d.DEPARTMENT_ID
-
+        
         WHERE PU.USER_ID IS NULL and e.name is not null
 
         ORDER BY tu.ACCESS_TIME
@@ -294,16 +411,16 @@ queries = {
 
         WITH tmpAccess
         AS (
-            SELECT d.ACCESS_INSTANT
-                ,d.PROCESS_ID
-                ,d.ACCESS_TIME
-                ,d.USER_ID
-                ,d.METRIC_ID
-                ,d.CSN
-                ,d.WORKSTATION_ID
-                ,d.PAT_ID
-            FROM {access_log} AS d
-            WHERE d.ACCESS_TIME BETWEEN @StartTime
+            SELECT a.ACCESS_INSTANT
+                ,a.PROCESS_ID
+                ,a.ACCESS_TIME
+                ,a.USER_ID
+                ,a.METRIC_ID
+                ,a.CSN
+                ,a.WORKSTATION_ID
+                ,a.PAT_ID
+            FROM {access_log} AS a
+            WHERE a.ACCESS_TIME BETWEEN @StartTime
                     AND @Endtime
                 {where_clause}
             ),
@@ -318,8 +435,6 @@ queries = {
                 ,m.EVENT_ACT_SUBTYPE_C
                 ,v.DATA_MNEMONIC_ID
                 ,v.STRING_VALUE
-                --,w.DATA_MNEMONIC_ID AS 'MTDLT_MNEMONIC'
-                --,w.STRING_VALUE AS 'MTDLT_STRING'
                 ,CSN
                 ,a.WORKSTATION_ID
                 ,a.PAT_ID
@@ -327,9 +442,6 @@ queries = {
             LEFT JOIN {acc_log_dtl} v
                 ON a.ACCESS_INSTANT = v.ACCESS_INSTANT
                 AND a.PROCESS_ID = v.PROCESS_ID
-            LEFT JOIN {acc_log_MTDTL} W
-                ON A.ACCESS_INSTANT=W.ACCESS_INSTANT 
-                AND A.PROCESS_ID=W.PROCESS_ID
             LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m
                 ON m.METRIC_ID = a.METRIC_ID
                 
@@ -384,8 +496,6 @@ queries = {
                             )
                 ELSE '-'
                 END AS Report_Info
-            --,TU.MTDLT_MNEMONIC
-            --,tu.MTDLT_STRING
             ,CONCAT (
                 p.PAT_LAST_NAME
                 ,'; '
