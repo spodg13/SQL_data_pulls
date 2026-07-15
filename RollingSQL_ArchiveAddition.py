@@ -466,7 +466,7 @@ def main():
             user_id=user_id or "",
             where_clause=where_clause
         )
-        print(f"query_text: {query_text}")  
+        #print(f"query_text: {query_text}")  
         print(f"Running chunk {i+1}: {chunk_start} → {chunk_end} ({tables['source']})")
         print(f"Start time: {datetime.now().strftime('%H:%M:%S')}")
 
