@@ -15,7 +15,7 @@ queries = {
         DECLARE @PatientID VARCHAR(18) = '{patient_id}'
 	    ,@UserID VARCHAR(18) = '{user_id}'
         ,@StartTime DATETIME = '{start_date}'
-        ,@Endtime DATETIME = '{end_date}'
+        ,@EndTime DATETIME = '{end_date}'
         ,@sys_log VARCHAR (18) = '{user_login}';
         SET NOCOUNT ON;
 
@@ -128,11 +128,14 @@ CREATE TABLE #tmpFinal (
     DROP TABLE #tmpFinal;
 
     """,
+    # ----------------------------
+    # Old eDiscovery Query (Kept for reference)
+    # ----------------------------
     "eDiscovery": """
         DECLARE @PatientID VARCHAR(18) = '{patient_id}'
 	    ,@UserID VARCHAR(18) = '{user_id}'
         ,@StartTime DATETIME = '{start_date}'
-        ,@Endtime DATETIME = '{end_date}'
+        ,@EndTime DATETIME = '{end_date}'
         ,@sys_log VARCHAR (18) = '{user_login}';
         SET NOCOUNT ON;
 
@@ -157,7 +160,7 @@ CREATE TABLE #tmpFinal (
         INTO #tmpAcc
         FROM {access_log} AS a
         WHERE a.ACCESS_TIME BETWEEN @StartTime
-                AND @Endtime
+                AND @EndTime
             {where_clause}
             ;
 
@@ -181,7 +184,7 @@ CREATE TABLE #tmpFinal (
             LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m
                 ON m.METRIC_ID = a.METRIC_ID
             WHERE a.ACCESS_TIME BETWEEN @StartTime
-                    AND @Endtime
+                    AND @EndTime
             )
             ,tmpMTDTL
         AS (

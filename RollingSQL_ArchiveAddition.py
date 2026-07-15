@@ -40,7 +40,6 @@ def get_connection(anyserver, anydatabase):
     )
     return pyodbc.connect(conn_str)
 
-
 # ----------------------------
 # USER ID LOOKUP
 # ----------------------------
@@ -120,8 +119,7 @@ def get_archive_cutoff():
     return archive_end, live_start
     
 
-def resolve_tables(chunk_start,live_start):
-    
+def resolve_tables(chunk_start, live_start):
     if chunk_start < live_start:
         year = chunk_start.year
         return {
@@ -132,7 +130,11 @@ def resolve_tables(chunk_start,live_start):
             "access_log": f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{year}",
             "acc_log_dtl": f"CLARITY_ARCHIVE.dbo.ACC_LOG_DTL_IX_{year}",
             "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
-            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}"
+            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}",
+            # --- INDEX VARIABLES FOR ARCHIVE (Columnstore) ---
+            "index_def_tmpAcc": "INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
+            "index_def_tmpFinal": "INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
+            "index_def_tmpFinal_post": "" # Columnstore doesn't need an extra non-clustered row index
         }
     else:
         return {
@@ -143,7 +145,12 @@ def resolve_tables(chunk_start,live_start):
             "access_log": "clarity_rpt.dbo.ACCESS_LOG",
             "acc_log_dtl": "clarity_rpt.dbo.ACC_LOG_DTL_IX",
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
-            "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF"
+            "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF",
+            # --- INDEX VARIABLES FOR LIVE (Rowstore B-Tree) ---
+            "index_def_tmpAcc": "PRIMARY KEY CLUSTERED (ACCESS_TIME, ACCESS_INSTANT, PROCESS_ID)",
+            "index_def_tmpFinal": "", # Keep it heap initially
+            # Create a localized B-Tree index post-insert to optimize final sorting
+            "index_def_tmpFinal_post": "CREATE NONCLUSTERED INDEX idx_tmpFinal_perf ON #tmpFinal (ACCESS_TIME, METRIC_ID);"
         }
 # ----------------------------
 # CHUNKED DATE RANGE
@@ -191,16 +198,46 @@ def pick_query_type(options):
 def run_query_pyodbc_conn(conn, query_text):
     """
     Run a SQL query using an existing pyodbc connection and return a pandas DataFrame.
+    Includes active connection confirmation before execution.
     """
     try:
+        # --- CONNECTION CONFIRMATION ---
+        # 1. Check if the pyodbc Connection object itself is closed
+        if conn is None:
+            print("⚠ Connection Confirmation Failed: Connection object is None.")
+            return pd.DataFrame()
+            
         cursor = conn.cursor()
+        
+        # 2. Run a fast connection test (heartbeat) directly on the target server
+        try:
+            cursor.execute("SELECT @@SERVERNAME AS ConnectedServer, DB_NAME() AS ConnectedDatabase;")
+            test_row = cursor.fetchone()
+            if test_row:
+                print(f"📡 Connection Confirmed! Running on Server: '{test_row[0]}' | DB: '{test_row[1]}'")
+            else:
+                print("⚠ Connection Confirmation: Handshake succeeded but returned no metadata.")
+        except Exception as conn_err:
+            print(f"❌ Connection Confirmation Failed! Could not communicate with database: {conn_err}")
+            cursor.close()
+            return pd.DataFrame()
+        # -------------------------------
+
+        # Now, execute your actual query
         cursor.execute(query_text)
 
-        # Fetch columns
-        columns = [col[0] for col in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
-
-        df = pd.DataFrame.from_records(rows, columns=columns)
+        # Loop through intermediate steps (temp tables, SET NOCOUNT, etc.) 
+        # to find the final actual result set
+        df = pd.DataFrame()
+        while True:
+            if cursor.description is not None:
+                columns = [col[0] for col in cursor.description]
+                rows = cursor.fetchall()
+                df = pd.DataFrame.from_records(rows, columns=columns)
+                break
+            
+            if not cursor.nextset():
+                break
 
         cursor.close()
         return df
@@ -212,6 +249,7 @@ def run_query_pyodbc_conn(conn, query_text):
 def log_chunk_timing(start_chunk, start_total, stopwatch, chunk_times, prefix=""):
     """Calculates, records, and prints chunk and total execution times."""
     chunk_runtime = stopwatch.time() - start_chunk
+    #Modifies the original list in-place, so the caller can keep a running log of all chunk times for averaging later
     chunk_times.append(chunk_runtime)
 
     elapsed_chunk = timedelta(seconds=int(chunk_runtime))
@@ -224,7 +262,6 @@ def log_chunk_timing(start_chunk, start_total, stopwatch, chunk_times, prefix=""
     else:
         print(f"Elapsed time {elapsed_chunk}")
         print(f"Total Time {elapsed_total}\n")
-    return
 
 def start_new_file(base_output_path, file_index):
     # Logic: Index 1 is the original. Index 2+ adds the suffix.
@@ -417,6 +454,11 @@ def main():
             acc_log_dtl=tables["acc_log_dtl"],
             acc_log_MTDTL=tables["acc_log_MTDTL"],
             acc_WRKF=tables["acc_WRKF"],
+            # Injecting the structural variables
+            index_def_tmpAcc=tables["index_def_tmpAcc"],
+            index_def_tmpFinal=tables["index_def_tmpFinal"],
+            index_def_tmpFinal_post=tables["index_def_tmpFinal_post"],
+            # Timestamps & Parameters
             start_date=chunk_start.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             end_date=chunk_end.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
             patient_id=patient_id or "",
@@ -424,7 +466,7 @@ def main():
             user_id=user_id or "",
             where_clause=where_clause
         )
-        #print(f"query_text: {query_text}")  
+        print(f"query_text: {query_text}")  
         print(f"Running chunk {i+1}: {chunk_start} → {chunk_end} ({tables['source']})")
         print(f"Start time: {datetime.now().strftime('%H:%M:%S')}")
 
