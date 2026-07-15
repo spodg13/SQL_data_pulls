@@ -132,8 +132,8 @@ def resolve_tables(chunk_start, live_start):
             "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
             "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}",
             # --- INDEX VARIABLES FOR ARCHIVE (Columnstore) ---
-            "index_def_tmpAcc": "INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
-            "index_def_tmpFinal": "INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
+            "index_def_tmpAcc": ", INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
+            "index_def_tmpFinal": ", INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
             "index_def_tmpFinal_post": "" # Columnstore doesn't need an extra non-clustered row index
         }
     else:
@@ -147,7 +147,7 @@ def resolve_tables(chunk_start, live_start):
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
             "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF",
             # --- INDEX VARIABLES FOR LIVE (Rowstore B-Tree) ---
-            "index_def_tmpAcc": "PRIMARY KEY CLUSTERED (ACCESS_TIME, ACCESS_INSTANT, PROCESS_ID)",
+            "index_def_tmpAcc": ", PRIMARY KEY CLUSTERED (ACCESS_TIME, ACCESS_INSTANT, PROCESS_ID)",
             "index_def_tmpFinal": "", # Keep it heap initially
             # Create a localized B-Tree index post-insert to optimize final sorting
             "index_def_tmpFinal_post": "CREATE NONCLUSTERED INDEX idx_tmpFinal_perf ON #tmpFinal (ACCESS_TIME, METRIC_ID);"

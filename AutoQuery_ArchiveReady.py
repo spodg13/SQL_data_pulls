@@ -31,7 +31,7 @@ CREATE TABLE #tmpAcc (
     METRIC_ID NUMERIC(18,0) NULL,
     CSN NUMERIC(18,0) NULL,
     WORKSTATION_ID VARCHAR(255) NULL,       
-    PAT_ID VARCHAR(18) NULL,
+    PAT_ID VARCHAR(18) NULL
     {index_def_tmpAcc} -- <-- Injected structural strategy here
 );
 
