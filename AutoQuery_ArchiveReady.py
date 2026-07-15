@@ -34,7 +34,16 @@ CREATE TABLE #tmpAcc (
     PAT_ID VARCHAR(18) NULL
     {index_def_tmpAcc} -- <-- Injected structural strategy here
 );
-
+/*
+    Background users to exclude from the eDiscovery query:
+        ('S202360', 'BLUEPRISM; PAC PD')
+        ('ICSERV', 'SERVICE; IC')
+        ('USERPSMF', 'USER; PROGRAMMATIC SMF')
+        ('HBBCKGRND', 'HB; BACKGROUND')
+        ('TASBATCH1', 'TAS, BACKGROUND USER')
+        ('30109164', 'INTERCONNECT, RDD-SERVICES')
+        ('1', 'EPIC, MADISON')
+*/        
 INSERT INTO #tmpAcc
     SELECT a.ACCESS_INSTANT, a.PROCESS_ID, a.ACCESS_TIME, a.USER_ID, a.METRIC_ID, a.CSN, a.WORKSTATION_ID, a.PAT_ID
     FROM {access_log} AS a
@@ -64,6 +73,7 @@ CREATE TABLE #tmpFinal (
     {index_def_tmpFinal} -- <-- Empty for live / Columnstore definition for archive
 );
 
+    -- Step A: Get all records that HAVE details (Super fast index joins)
     INSERT INTO #tmpFinal
     SELECT a.ACCESS_TIME, v.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, v.DATA_MNEMONIC_ID, v.STRING_VALUE, a.CSN, a.WORKSTATION_ID, a.PAT_ID
     FROM #tmpAcc a
@@ -81,6 +91,17 @@ CREATE TABLE #tmpFinal (
         AND w.ACCESS_INSTANT BETWEEN @StartInstant AND @EndInstant 
     LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
     WHERE w.DATA_MNEMONIC_ID IS NOT NULL;
+
+    -- Step B: Sweep in any parent access logs that had NO matching details 
+    -- This uses a Left Anti-Semi Join to check what we've already inserted
+    INSERT INTO #tmpFinal
+    SELECT a.ACCESS_TIME, a.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, 
+           'NO_MNEMONIC_ID' AS DATA_MNEMONIC_ID, '-' AS STRING_VALUE, 
+           a.CSN, a.WORKSTATION_ID, a.PAT_ID
+    FROM #tmpAcc a
+    LEFT JOIN #tmpFinal tf ON a.ACCESS_INSTANT = tf.ACCESS_INSTANT 
+    LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
+    WHERE tf.ACCESS_INSTANT IS NULL; -- Only insert if it doesn't already exist in #tmpFinal
 
     -- 4. Post-Insert structural index processing
     {index_def_tmpFinal_post} -- <-- Dynamically runs index statement only if live
