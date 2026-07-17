@@ -150,7 +150,7 @@ def resolve_tables(chunk_start, live_start):
             "index_def_tmpAcc": ",  INDEX ix_tmpAcc CLUSTERED (ACCESS_INSTANT, PROCESS_ID)",
             "index_def_tmpFinal": "", # Keep it heap initially
             # Create a localized B-Tree index post-insert to optimize final sorting
-            "index_def_tmpFinal_post": "CREATE CLUSTERED INDEX idx_tmpFinal_perf ON #tmpFinal (ACCESS_TIME, METRIC_ID);"
+            "index_def_tmpFinal_post": "CREATE CLUSTERED INDEX ix_tmpFinal ON #tmpFinal (ACCESS_TIME, METRIC_ID, DATA_MNEMONIC_ID);"
         }
 # ----------------------------
 # CHUNKED DATE RANGE

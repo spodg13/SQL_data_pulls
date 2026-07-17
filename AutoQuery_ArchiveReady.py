@@ -327,9 +327,9 @@ CREATE TABLE #tmpFinal (
         DROP TABLE #tmpUSER
         """,
 # ----------------------------
-# CYBER PATIENTLESS
+# FORENSIC PATIENTLESS
 # ----------------------------
-    "cyber_patientless": """
+    "forensic_patientless": """
         DECLARE
 	        @UserID    NVARCHAR(50)= '{user_id}', 
             @StartTime DATETIME = '{start_date}',
