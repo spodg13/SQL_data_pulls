@@ -75,15 +75,19 @@ def get_user_data(conn, identifier):
 # ----------------------------
 # WHERE CLAUSE BUILDER
 # ----------------------------
-def build_where_clause(filter_type, patient_id=None, user_login=None):
+def build_where_clause(patient_id=None, user_login=None):
     where_parts = []
-    if filter_type == "p" and patient_id:
+    
+    # If a patient ID is provided (and is not an empty string)
+    if patient_id:
         where_parts.append("AND a.PAT_ID = @PatientID")
-    elif filter_type == "u" and user_login:
+        
+    # If a user login is provided (and is not an empty string)
+    if user_login:
         where_parts.append("AND a.USER_ID = @UserID")
-    elif filter_type == "b" and patient_id and user_login:
-        where_parts.append("AND a.USER_ID = @UserID AND a.PAT_ID = @PatientID")
-    return "\n    " + " ".join(where_parts) if where_parts else ""
+        
+    # Join them with a newline and spaces to match your SQL formatting
+    return "\n      ".join(where_parts) if where_parts else ""
 
 def get_archive_cutoff():
     today = datetime.today()
@@ -106,11 +110,9 @@ def get_archive_cutoff():
     if df.empty or pd.isna(df.loc[0, "max_access_time"]):
         raise RuntimeError(f"Could not determine archive cutoff from {table}")
 
-    max_access_time = df.loc[0, "max_access_time"]
-    live_start = max_access_time 
-
-
-    # Last valid archive record
+    live_start = df.loc[0, "max_access_time"]
+    
+    # Last valid archive record (subtract 1 millisecond)
     archive_end = live_start - timedelta(milliseconds=1)
 
     print(f"Archive data ends at: {archive_end}")
@@ -119,37 +121,58 @@ def get_archive_cutoff():
     return archive_end, live_start
     
 
-def resolve_tables(chunk_start, live_start):
-    if chunk_start < live_start:
+def resolve_tables(chunk_start, live_start, history_start=None):
+    # 1. NEW HISTORY BRANCH
+    if history_start and chunk_start < history_start:
+        return {
+            "source": "history",
+            "server": "prd-clarity-history.et0278.epichosted.com",  # Adjust if history is on a different server
+            "database": "CLARITY_HISTORY",
+            "access_log": "CLARITY_HISTORY.dbo.ACCESS_LOG_HISTORY",
+            "acc_log_dtl": "CLARITY_HISTORY.dbo.ACC_LOG_DTL_IX_History",
+            # MTDTL remains on the original live database as you described:
+            "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX", 
+            
+            # --- INDEX STRATEGY FOR HISTORY ---
+            # Sort #tmpAcc on ACCESS_TIME & ACCESS_INSTANT. 
+            # This perfectly exploits the history table's ACCESS_TIME row index AND matches the DTL's ACCESS_INSTANT index.
+            "index_def_tmpAcc": ", INDEX ix_tmpAcc CLUSTERED (ACCESS_TIME, ACCESS_INSTANT)",
+            
+            # Since Acc_LOG_DTL_IX_History has a columnstore, we can build a CCI on our final table for fast unions
+            "index_def_tmpFinal": ", INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
+            "index_def_tmpFinal_post": ""
+        }
+        
+    # 2. ARCHIVE BRANCH
+    elif chunk_start < live_start:
         year = chunk_start.year
         return {
             "source": "archive",
-            "year": chunk_start.year,
             "server": "prd-clarity.et0278.epichosted.com",
             "database": "CLARITY_ARCHIVE",
             "access_log": f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{year}",
             "acc_log_dtl": f"CLARITY_ARCHIVE.dbo.ACC_LOG_DTL_IX_{year}",
             "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
-            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}",
-            # --- INDEX VARIABLES FOR ARCHIVE (Columnstore) ---
+            
+            # --- INDEX STRATEGY FOR ARCHIVE ---
             "index_def_tmpAcc": ", INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
             "index_def_tmpFinal": ", INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
-            "index_def_tmpFinal_post": "" # Columnstore doesn't need an extra non-clustered row index
+            "index_def_tmpFinal_post": "" 
         }
+        
+    # 3. LIVE BRANCH
     else:
         return {
             "source": "live",
-            "year": None,
-            "server": "EDCLM1",
+            "server": "prd-clarity.et0278.epichosted.com",
             "database": "clarity_rpt",
             "access_log": "clarity_rpt.dbo.ACCESS_LOG",
             "acc_log_dtl": "clarity_rpt.dbo.ACC_LOG_DTL_IX",
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
-            "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF",
-            # --- INDEX VARIABLES FOR LIVE (Rowstore B-Tree) ---
-            "index_def_tmpAcc": ",  INDEX ix_tmpAcc CLUSTERED (ACCESS_INSTANT, PROCESS_ID)",
-            "index_def_tmpFinal": "", # Keep it heap initially
-            # Create a localized B-Tree index post-insert to optimize final sorting
+            
+            # --- INDEX STRATEGY FOR LIVE ---
+            "index_def_tmpAcc": ", INDEX ix_tmpAcc CLUSTERED (ACCESS_INSTANT, PROCESS_ID)",
+            "index_def_tmpFinal": "", 
             "index_def_tmpFinal_post": "CREATE CLUSTERED INDEX ix_tmpFinal ON #tmpFinal (ACCESS_TIME, METRIC_ID, DATA_MNEMONIC_ID);"
         }
 # ----------------------------
@@ -444,10 +467,11 @@ def main():
             current_conn = get_connection(tables["server"], tables["database"])
             current_db_key = db_key
 
-        # --- Determine archive vs live ---
+        # --- Determine history vs archive vs live ---
+        
         is_live = chunk_start >= live_start
 
-        where_clause = build_where_clause(filter_type, patient_id, user_login) or ""
+        where_clause = build_where_clause( patient_id, user_login) or ""
 
         query_text = base_query.format(
             access_log=tables["access_log"],

@@ -19,8 +19,6 @@ queries = {
         ,@sys_log VARCHAR (18) = '{user_login}';
         SET NOCOUNT ON;
 
-        DECLARE @StartInstant BIGINT = DATEDIFF_BIG(second, '1840-12-31', @StartTime);
-        DECLARE @EndInstant BIGINT = DATEDIFF_BIG(second, '1840-12-31', @EndTime);
 
         -- 2. First structural swap: #tmpAcc
 CREATE TABLE #tmpAcc (
@@ -55,7 +53,9 @@ INSERT INTO #tmpAcc
     ) PU(ExcludedUser) ON a.USER_ID = PU.ExcludedUser
     WHERE a.ACCESS_TIME BETWEEN @StartTime AND @EndTime -- <-- Timestamps are evaluated FIRST
       AND PU.ExcludedUser IS NULL                       -- <-- Then background users are dropped
+      AND a.USER_ID NOT LIKE '82%'  
       {where_clause};
+      
 
 -- 3. Second structural swap: #tmpFinal
 CREATE TABLE #tmpFinal (
