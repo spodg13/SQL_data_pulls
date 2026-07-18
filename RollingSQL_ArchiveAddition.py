@@ -132,6 +132,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "acc_log_dtl": "CLARITY_HISTORY.dbo.ACC_LOG_DTL_IX_History",
             # MTDTL remains on the original live database as you described:
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX", 
+            "acc_WRKF": "clarity_rpt.dbo.ACC_WRKF_HISTORY",  # Assuming this is the correct history table for WRKF
             
             # --- INDEX STRATEGY FOR HISTORY ---
             # Sort #tmpAcc on ACCESS_TIME & ACCESS_INSTANT. 
@@ -153,6 +154,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "access_log": f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{year}",
             "acc_log_dtl": f"CLARITY_ARCHIVE.dbo.ACC_LOG_DTL_IX_{year}",
             "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
+            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACC_WRKF_{year}",
             
             # --- INDEX STRATEGY FOR ARCHIVE ---
             "index_def_tmpAcc": ", INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
@@ -169,6 +171,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "access_log": "clarity_rpt.dbo.ACCESS_LOG",
             "acc_log_dtl": "clarity_rpt.dbo.ACC_LOG_DTL_IX",
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
+            "acc_WRKF": "clarity_rpt.dbo.ACC_WRKF",
             
             # --- INDEX STRATEGY FOR LIVE ---
             "index_def_tmpAcc": ", INDEX ix_tmpAcc CLUSTERED (ACCESS_INSTANT, PROCESS_ID)",
@@ -557,7 +560,7 @@ def main():
         avg_chunk_time = sum(chunk_times) / len(chunk_times) if chunk_times else 0
         avg_chunk_time_td = timedelta(seconds=int(avg_chunk_time))
 
-        print(f"✅ Total rows written across all chunks: {total_rows_written}")
+        print(f"✅ Total rows written across {i+1} chunks: {total_rows_written}")
         print(f"📁 Files created: {files_created}")
         print(f"📊 Largest file rows: {largest_file_rows:,}")
         print(f"⏱ Average chunk time: {avg_chunk_time_td}")

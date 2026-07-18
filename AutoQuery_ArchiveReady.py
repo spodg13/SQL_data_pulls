@@ -60,7 +60,7 @@ INSERT INTO #tmpAcc
 -- 3. Second structural swap: #tmpFinal
 CREATE TABLE #tmpFinal (
     ACCESS_TIME DATETIME NULL,
-    ACCESS_INSTANT NUMERIC(18,6) NOT NULL,
+    ACCESS_INSTANT NUMERIC(18,6) NULL,
     USER_ID VARCHAR(18) NULL,
     METRIC_ID NUMERIC(18,0) NULL,
     EVENT_ACTION_TYPE_C INT NULL,
@@ -77,9 +77,9 @@ CREATE TABLE #tmpFinal (
     INSERT INTO #tmpFinal
     SELECT a.ACCESS_TIME, v.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, v.DATA_MNEMONIC_ID, v.STRING_VALUE, a.CSN, a.WORKSTATION_ID, a.PAT_ID
     FROM #tmpAcc a
-    INNER JOIN {acc_log_dtl} v
+    LEFT JOIN {acc_log_dtl} v
         ON a.ACCESS_INSTANT = v.ACCESS_INSTANT AND a.PROCESS_ID = v.PROCESS_ID
-        AND v.ACCESS_INSTANT BETWEEN @StartInstant AND @EndInstant 
+        
     LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
 
     UNION ALL
@@ -87,22 +87,11 @@ CREATE TABLE #tmpFinal (
     SELECT a.ACCESS_TIME, w.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, w.DATA_MNEMONIC_ID, w.STRING_VALUE, a.CSN, a.WORKSTATION_ID, a.PAT_ID
     FROM #tmpAcc a
     INNER JOIN {acc_log_MTDTL} w
-        ON a.ACCESS_INSTANT = w.ACCESS_INSTANT AND a.PROCESS_ID = w.PROCESS_ID
-        AND w.ACCESS_INSTANT BETWEEN @StartInstant AND @EndInstant 
+        ON a.ACCESS_INSTANT = w.ACCESS_INSTANT AND a.PROCESS_ID = w.PROCESS_ID 
     LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
     WHERE w.DATA_MNEMONIC_ID IS NOT NULL;
 
-    -- Step B: Sweep in any parent access logs that had NO matching details 
-    -- This uses a Left Anti-Semi Join to check what we've already inserted
-    INSERT INTO #tmpFinal
-    SELECT a.ACCESS_TIME, a.ACCESS_INSTANT, a.USER_ID, a.METRIC_ID, m.EVENT_ACTION_TYPE_C, m.EVENT_ACT_SUBTYPE_C, 
-           'NO_MNEMONIC_ID' AS DATA_MNEMONIC_ID, '-' AS STRING_VALUE, 
-           a.CSN, a.WORKSTATION_ID, a.PAT_ID
-    FROM #tmpAcc a
-    LEFT JOIN #tmpFinal tf ON a.ACCESS_INSTANT = tf.ACCESS_INSTANT 
-    LEFT JOIN clarity_rpt..ACCESS_LOG_METRIC m ON m.METRIC_ID = a.METRIC_ID
-    WHERE tf.ACCESS_INSTANT IS NULL; -- Only insert if it doesn't already exist in #tmpFinal
-
+    
     -- 4. Post-Insert structural index processing
     {index_def_tmpFinal_post} -- <-- Dynamically runs index statement only if live
 
