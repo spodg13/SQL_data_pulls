@@ -121,31 +121,9 @@ def get_archive_cutoff():
     return archive_end, live_start
     
 
-def resolve_tables(chunk_start, live_start, history_start=None):
-    # 1. NEW HISTORY BRANCH
-    if history_start and chunk_start < history_start:
-        return {
-            "source": "history",
-            "server": "prd-clarity-history.et0278.epichosted.com",  # Adjust if history is on a different server
-            "database": "CLARITY_HISTORY",
-            "access_log": "CLARITY_HISTORY.dbo.ACCESS_LOG_HISTORY",
-            "acc_log_dtl": "CLARITY_HISTORY.dbo.ACC_LOG_DTL_IX_History",
-            # MTDTL remains on the original live database as you described:
-            "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX", 
-            "acc_WRKF": "clarity_rpt.dbo.ACC_WRKF_HISTORY",  # Assuming this is the correct history table for WRKF
-            
-            # --- INDEX STRATEGY FOR HISTORY ---
-            # Sort #tmpAcc on ACCESS_TIME & ACCESS_INSTANT. 
-            # This perfectly exploits the history table's ACCESS_TIME row index AND matches the DTL's ACCESS_INSTANT index.
-            "index_def_tmpAcc": ", INDEX ix_tmpAcc CLUSTERED (ACCESS_TIME, ACCESS_INSTANT)",
-            
-            # Since Acc_LOG_DTL_IX_History has a columnstore, we can build a CCI on our final table for fast unions
-            "index_def_tmpFinal": ", INDEX cci_tmpFinal CLUSTERED COLUMNSTORE",
-            "index_def_tmpFinal_post": ""
-        }
-        
-    # 2. ARCHIVE BRANCH
-    elif chunk_start < live_start:
+def resolve_tables(chunk_start, live_start):
+    # 1. ARCHIVE BRANCH (Any date before Live Start)
+    if chunk_start < live_start:
         year = chunk_start.year
         return {
             "source": "archive",
@@ -154,7 +132,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "access_log": f"CLARITY_ARCHIVE.dbo.ACCESS_LOG_{year}",
             "acc_log_dtl": f"CLARITY_ARCHIVE.dbo.ACC_LOG_DTL_IX_{year}",
             "acc_log_MTDTL": f"CLARITY_ARCHIVE.dbo.ACC_LOG_MTLDTL_IX_{year}",
-            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACC_WRKF_{year}",
+            "acc_WRKF": f"CLARITY_ARCHIVE.dbo.ACCESS_WRKF_{year}",
             
             # --- INDEX STRATEGY FOR ARCHIVE ---
             "index_def_tmpAcc": ", INDEX cci_tmpAcc CLUSTERED COLUMNSTORE",
@@ -162,7 +140,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "index_def_tmpFinal_post": "" 
         }
         
-    # 3. LIVE BRANCH
+    # 2. LIVE BRANCH
     else:
         return {
             "source": "live",
@@ -171,7 +149,7 @@ def resolve_tables(chunk_start, live_start, history_start=None):
             "access_log": "clarity_rpt.dbo.ACCESS_LOG",
             "acc_log_dtl": "clarity_rpt.dbo.ACC_LOG_DTL_IX",
             "acc_log_MTDTL": "clarity_rpt.dbo.ACC_LOG_MTLDTL_IX",
-            "acc_WRKF": "clarity_rpt.dbo.ACC_WRKF",
+            "acc_WRKF": "clarity_rpt.dbo.ACCESS_WRKF",
             
             # --- INDEX STRATEGY FOR LIVE ---
             "index_def_tmpAcc": ", INDEX ix_tmpAcc CLUSTERED (ACCESS_INSTANT, PROCESS_ID)",
@@ -568,9 +546,9 @@ def main():
         print(f"\nOutput saved starting at:\n{base_output_path}.xlsx")
         should_process = False
         
-        if query_choice == "cyber_patientless":
+        if query_choice == "forensic_patientless":
             should_process = True
-            print("Query type 'cyber_patientless' detected: Auto-processing System Refreshes...")
+            print("Query type 'forensic_patientless' detected: Auto-processing System Refreshes...")
             play_sound("finished")
         else:
             play_sound("finished")
